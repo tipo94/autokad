@@ -16,6 +16,7 @@ const state = {
   rubber: null,
   lastPt: null,
   ortho: false,
+  polar: false,
   gridSnap: false,
   osnap: true,
   showGrid: true,
@@ -242,6 +243,11 @@ function snapPoint(world) {
     const d = sub(p, state.lastPt);
     if (Math.abs(d[0]) >= Math.abs(d[1])) p = [p[0], state.lastPt[1]];
     else p = [state.lastPt[0], p[1]];
+  } else if (state.polar && state.lastPt) {
+    const d = sub(p, state.lastPt);
+    const step = 45 * Math.PI / 180;
+    const a = Math.round(Math.atan2(d[1], d[0]) / step) * step;
+    p = [state.lastPt[0] + len(d) * Math.cos(a), state.lastPt[1] + len(d) * Math.sin(a)];
   }
   if (state.gridSnap) {
     const g = state.gridStep;
@@ -467,6 +473,40 @@ function drawSnapMarker() {
   ctx.restore();
 }
 
+function drawMeasure() {
+  let a = null, b = null;
+  if (state.tool === 'measure' && state.preview) { a = state.preview.p1; b = state.preview.p2; }
+  else if (state.measureResult) { a = state.measureResult.a; b = state.measureResult.b; }
+  if (!a || !b) return;
+  const s1 = w2s(a), s2 = w2s(b);
+  ctx.save();
+  ctx.strokeStyle = '#7fffd0';
+  ctx.fillStyle = '#7fffd0';
+  ctx.lineWidth = 1.3;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(s1[0], s1[1]);
+  ctx.lineTo(s2[0], s2[1]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  for (const q of [s1, s2]) {
+    ctx.beginPath();
+    ctx.arc(q[0], q[1], 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const label = fmt(dist(a, b));
+  ctx.font = '600 12px Inter, system-ui, sans-serif';
+  const tw = ctx.measureText(label).width;
+  const mx = (s1[0] + s2[0]) / 2, my = (s1[1] + s2[1]) / 2;
+  ctx.fillStyle = 'rgba(11,16,23,.85)';
+  ctx.fillRect(mx - tw / 2 - 5, my - 18, tw + 10, 16);
+  ctx.fillStyle = '#7fffd0';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, mx, my - 10);
+  ctx.restore();
+}
+
 function drawPreview() {
   const pv = state.preview;
   if (!pv) return;
@@ -490,6 +530,7 @@ function draw() {
     const selEnts = state.doc.entities.filter(e => state.sel.has(e.id));
     if (selEnts.length) drawSelection(selEnts);
   }
+  drawMeasure();
   if (state.rubber) {
     const { x0, y0, x1, y1 } = state.rubber;
     ctx.save();
@@ -620,6 +661,7 @@ const PROMPTS = {
   arc: 'Arc: pick start, second point, then end',
   text: 'Text: pick insertion point',
   dim: 'Dimension: pick first point',
+  measure: 'Measure: pick first point',
   move: 'Move: select objects then press Enter, then pick base point',
   copy: 'Copy: select objects then press Enter, then pick base point',
   rotate: 'Rotate: select objects then press Enter, then pick centre',
@@ -634,6 +676,7 @@ function setTool(t) {
   state.drag = null;
   state.phase = null;
   state.offsetEnt = null;
+  state.measureResult = null;
   document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
   setPrompt(PROMPTS[t] || 'Ready');
   cv.classList.toggle('grab', t === 'select');
@@ -843,7 +886,7 @@ function updateMeasureHud(p, raw) {
   document.getElementById('hl').textContent = fmt(r(len));
   document.getElementById('ha').textContent = Math.round(r(ang)) + '°';
   document.getElementById('hd').textContent = fmt(r(dx)) + ', ' + fmt(r(dy));
-  row.style.display = '';
+  row.style.display = 'flex';
 }
 
 /* ---------- pointer events ---------- */
@@ -911,6 +954,8 @@ cv.addEventListener('mousemove', (ev) => {
       ent.type = ent.type; // keep
       state.preview = ent;
     }
+  } else if (t === 'measure' && state.pending.length === 1) {
+    state.preview = { type: 'line', layer: state.doc.currentLayer, p1: state.pending[0], p2: p };
   } else if (['line', 'rect', 'circle', 'dim', 'arc', 'polyline'].includes(t) && state.pending.length) {
     const pts = state.pending.concat([p]);
     if (t === 'polyline') {
@@ -1056,6 +1101,21 @@ cv.addEventListener('mousedown', (ev) => {
       return;
     }
     // phase 2/3 handled below
+  }
+
+  if (t === 'measure') {
+    state.pending.push(p);
+    if (state.pending.length === 1) {
+      setPrompt('Measure: pick second point');
+    } else {
+      const a = state.pending[0];
+      state.pending = [];
+      state.preview = null;
+      state.measureResult = { a, b: p };
+      setPrompt('Measured: ' + fmt(dist(a, p)) + ' — pick first point to measure again');
+    }
+    draw();
+    return;
   }
 
   pickPoint(p);
@@ -1259,6 +1319,7 @@ window.addEventListener('keydown', (ev) => {
   if (ev.key === 'F3') { ev.preventDefault(); toggle('osnap', 'tgSnap'); return; }
   if (ev.key === 'F7') { ev.preventDefault(); toggle('showGrid', 'tgGrid'); return; }
   if (ev.key === 'F8') { ev.preventDefault(); toggle('ortho', 'tgOrtho'); return; }
+  if (ev.key === 'F10') { ev.preventDefault(); toggle('polar', 'tgPolar'); return; }
   if (ev.key === 'F9') { ev.preventDefault(); toggle('gridSnap', 'tgGridSnap'); return; }
 
   // classic CAD feel: start typing a number while a point tool is active -> grab it into the command bar
@@ -1271,7 +1332,7 @@ window.addEventListener('keydown', (ev) => {
 
   const k = ev.key.toLowerCase();
   const map = { v: 'select', l: 'line', p: 'polyline', r: 'rect', c: 'circle', a: 'arc',
-                t: 'text', d: 'dim', m: 'move', e: 'erase', o: 'rotate' };
+                t: 'text', d: 'dim', u: 'measure', m: 'move', e: 'erase', o: 'rotate' };
   if (k === 'f' && !mod) { ev.preventDefault(); fitView(); return; }
   if (map[k] && !ev.altKey) { ev.preventDefault(); setTool(map[k]); }
 });
@@ -1284,7 +1345,7 @@ function toggle(prop, btnId) {
   state[prop] = !state[prop];
   document.getElementById(btnId).classList.toggle('on', state[prop]);
   if (prop === 'showGrid') draw();
-  if (prop === 'ortho' || prop === 'gridSnap' || prop === 'osnap') setPrompt('Ready');
+  if (prop === 'ortho' || prop === 'polar' || prop === 'gridSnap' || prop === 'osnap') setPrompt('Ready');
 }
 
 /* ---------- edit ops ---------- */
@@ -2077,12 +2138,13 @@ function wireUI() {
         if (g) g.classList.toggle('on', state.showGrid);
         draw();
       }
-      if (prop === 'ortho' || prop === 'gridSnap' || prop === 'osnap') setPrompt('Ready');
+      if (prop === 'ortho' || prop === 'polar' || prop === 'gridSnap' || prop === 'osnap') setPrompt('Ready');
     };
   };
   tg('tgSnap', 'osnap');
   tg('tgGridSnap', 'gridSnap');
   tg('tgOrtho', 'ortho');
+  tg('tgPolar', 'polar');
   tg('tgGrid', 'showGrid');
 
   const dn = document.getElementById('docName');
