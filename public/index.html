@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoKad — Browser 2D CAD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230f1520'/><path d='M6 26 L6 8 L16 20 L26 8 L26 26' fill='none' stroke='%23ffb454' stroke-width='3' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" class="logo"><rect width="32" height="32" rx="7" fill="#131a26"/><path d="M6 26 L6 8 L16 20 L26 8 L26 26" fill="none" stroke="#ffb454" stroke-width="3" stroke-linejoin="round"/></svg>
+      <div class="brand-text"><strong>AutoKad</strong><span>browser drafting</span></div>
+    </div>
+    <div class="menu">
+      <button class="mb" id="btnNew">New</button>
+      <button class="mb" id="btnOpen">Open</button>
+      <button id="btnImport" class="tb" title="Import a DXF file">Import DXF</button>
+      <input type="file" id="fileImport" accept=".dxf" style="display:none">
+      <button class="mb" id="btnSave">Save</button>
+      <span class="sep"></span>
+      <button class="mb" id="btnUndo" title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button class="mb" id="btnRedo" title="Redo (Ctrl+Y)">↷ Redo</button>
+      <span class="sep"></span>
+      <button class="mb" id="btnZoomExt">Zoom Extents</button>
+      <button class="mb" id="btnFit" title="Fit selection or all content (F)">Fit</button>
+      <button class="mb" id="btnGrid">Grid</button>
+      <span class="sep"></span>
+      <div class="dropdown">
+        <button class="mb" id="btnExport">Export ▾</button>
+        <div class="dd-menu" id="exportMenu">
+          <button data-exp="svg">SVG vector</button>
+          <button data-exp="dxf">DXF (CAD exchange)</button>
+          <button data-exp="png">PNG image</button>
+          <button data-exp="json">JSON drawing</button>
+        </div>
+      </div>
+      <button class="mb" id="btnShare">Share</button>
+    </div>
+    <div class="docinfo">
+      <input id="docName" class="docname" value="Untitled Drawing" spellcheck="false">
+      <span class="status-pill" id="savePill">saved</span>
+      <span class="sep"></span>
+      <div id="authBox" class="authbox"></div>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="toolbar" id="toolbar">
+      <button class="tool" data-tool="select" title="Select / move (V)"><svg viewBox="0 0 20 20"><path d="M4 2 L4 16 L7.5 12.5 L10 18 L12 17 L9.5 11.7 L14 11.5 Z"/></svg><span>Select</span></button>
+      <button class="tool" data-tool="line" title="Line (L)"><svg viewBox="0 0 20 20"><path d="M3 17 L17 3" stroke-width="2"/><circle cx="3" cy="17" r="1.7"/><circle cx="17" cy="3" r="1.7"/></svg><span>Line</span></button>
+      <button class="tool" data-tool="polyline" title="Polyline (P)"><svg viewBox="0 0 20 20"><path d="M2 16 L7 6 L12 12 L18 3" stroke-width="2"/></svg><span>Polyline</span></button>
+      <button class="tool" data-tool="rect" title="Rectangle (R)"><svg viewBox="0 0 20 20"><rect x="3" y="5" width="14" height="10" stroke-width="2"/></svg><span>Rect</span></button>
+      <button class="tool" data-tool="circle" title="Circle (C)"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" stroke-width="2"/></svg><span>Circle</span></button>
+      <button class="tool" data-tool="arc" title="Arc (A)"><svg viewBox="0 0 20 20"><path d="M2 15 A8 8 0 0 1 18 15" stroke-width="2"/></svg><span>Arc</span></button>
+      <button class="tool" data-tool="text" title="Text (T)"><svg viewBox="0 0 20 20"><path d="M3 5 H17 M10 5 V16" stroke-width="2"/></svg><span>Text</span></button>
+      <button class="tool" data-tool="dim" title="Linear dimension (D)"><svg viewBox="0 0 20 20"><path d="M3 6 V14 M17 6 V14 M3 10 H17" stroke-width="1.7"/><path d="M5 8 L3 10 L5 12 M15 8 L17 10 L15 12" stroke-width="1.4"/></svg><span>Dim</span></button>
+      <button class="tool" data-tool="offset" title="Offset: parallel copy (pick object, then pick side)"><svg viewBox="0 0 20 20"><path d="M3 14 H17 M3 6 H17" stroke-width="1.7"/><path d="M14 3.5 L17 6 L14 8.5" stroke-width="1.4" fill="none"/><path d="M6 11.5 L3 14 L6 16.5" stroke-width="1.4" fill="none"/></svg><span>Offset</span></button>
+      <div class="tool-sep"></div>
+      <button class="tool" data-tool="move" title="Move (M)"><svg viewBox="0 0 20 20"><path d="M10 2 V18 M2 10 H18 M10 2 L7 5 M10 2 L13 5 M10 18 L7 15 M10 18 L13 15 M2 10 L5 7 M2 10 L5 13 M18 10 L15 7 M18 10 L15 13" stroke-width="1.5"/></svg><span>Move</span></button>
+      <button class="tool" data-tool="copy" title="Copy (Ctrl+C then pick)"><svg viewBox="0 0 20 20"><rect x="3" y="3" width="9" height="9" stroke-width="1.7"/><rect x="8" y="8" width="9" height="9" stroke-width="1.7"/></svg><span>Copy</span></button>
+      <button class="tool" data-tool="rotate" title="Rotate"><svg viewBox="0 0 20 20"><path d="M16 10 A6 6 0 1 1 10 4" stroke-width="1.8"/><path d="M10 1 L10 7 L15 4" stroke-width="1.6"/></svg><span>Rotate</span></button>
+      <button class="tool" data-tool="erase" title="Erase selected (Del)"><svg viewBox="0 0 20 20"><path d="M4 16 L14 4 L18 8 L9 18 Z" stroke-width="1.7"/><path d="M2 18 H12" stroke-width="1.7"/></svg><span>Erase</span></button>
+    </aside>
+
+    <main class="canvas-wrap" id="canvasWrap">
+      <canvas id="cv"></canvas>
+      <div class="hud" id="hud">
+        <div class="hud-row"><span class="k">X</span><span id="hx">0.00</span><span class="k">Y</span><span id="hy">0.00</span></div>
+        <div class="hud-row"><span class="k">ZOOM</span><span id="hz">100%</span></div>
+        <div class="hud-row" id="hud-measure" style="display:none"><span class="k">L</span><span id="hl">—</span><span class="k">A</span><span id="ha">—</span><span class="k">Δ</span><span id="hd">—</span></div>
+      </div>
+      <div class="prompt" id="prompt">
+        <span class="prompt-ico">›</span>
+        <span id="promptText">Ready</span>
+      </div>
+      <div class="tip" id="tip">Wheel = zoom · Middle/space-drag = pan · F8 ortho · F9 grid snap · F3 object snap</div>
+    </main>
+
+    <aside class="side">
+      <section class="panel">
+        <h3>Layers <button class="mini" id="btnAddLayer">+</button></h3>
+        <div class="layer-list" id="layerList"></div>
+      </section>
+      <section class="panel grow">
+        <h3>Properties</h3>
+        <div id="props" class="props"><div class="empty">Nothing selected</div></div>
+      </section>
+      <section class="panel">
+        <h3>Selection</h3>
+        <div id="selInfo" class="selinfo">0 objects</div>
+        <div class="btn-row">
+          <button class="mini wide" id="btnSelLayer">Move to layer…</button>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <footer class="statusbar">
+    <div class="st-left">
+      <input id="cmdInput" class="cmd-input" placeholder="Type x,y · @x,y · dist<angle, Enter to place" autocomplete="off" spellcheck="false">
+      <span id="cmdEcho">Command: —</span>
+    </div>
+    <div class="st-right">
+      <button class="toggle on" id="tgSnap" title="Object snap (F3)">OSNAP</button>
+      <button class="toggle" id="tgGridSnap" title="Grid snap (F9)">SNAP</button>
+      <button class="toggle" id="tgOrtho" title="Ortho (F8)">ORTHO</button>
+      <button class="toggle on" id="tgGrid" title="Grid (F7)">GRID</button>
+      <span id="countInfo">0 entities</span>
+    </div>
+  </footer>
+</div>
+
+<div class="modal" id="openModal">
+  <div class="modal-box">
+    <div class="modal-head"><h2>Open drawing</h2><button class="mini" id="closeOpen">✕</button></div>
+    <div id="drawingList" class="drawing-list">Loading…</div>
+  </div>
+</div>
+
+<div class="modal" id="authModal">
+  <div class="modal-box small">
+    <div class="modal-head"><h2 id="authTitle">Sign in</h2><button class="mini" id="authClose">✕</button></div>
+    <input id="authUser" class="text-input" placeholder="Username" autocomplete="username" spellcheck="false">
+    <input id="authPass" class="text-input" type="password" placeholder="Password" autocomplete="current-password">
+    <div class="modal-foot">
+      <button class="mb" id="authSwitch">Need an account? Register</button>
+      <button class="mb accent" id="authGo">Sign in</button>
+    </div>
+    <div id="authErr" class="auth-err"></div>
+  </div>
+</div>
+
+<div class="modal" id="textModal">
+  <div class="modal-box small">
+    <div class="modal-head"><h2>Text</h2></div>
+    <input id="textInput" class="text-input" placeholder="Label text…" autocomplete="off">
+    <div class="modal-foot"><button class="mb" id="textCancel">Cancel</button><button class="mb accent" id="textOk">Place</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
