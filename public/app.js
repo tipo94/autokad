@@ -1624,6 +1624,11 @@ async function showOpen() {
       const dup = document.createElement('button');
       dup.className = 'mb'; dup.textContent = 'Duplicate'; dup.title = 'Create a copy of this drawing';
       dup.onclick = async () => {
+        if (dup.dataset.busy === '1') return; // idempotency guard: ignore extra clicks while in flight
+        dup.dataset.busy = '1';
+        dup.disabled = true;
+        const label = dup.textContent;
+        dup.textContent = 'Duplicating\u2026';
         try {
           const res = await fetch('/api/drawings/' + encodeURIComponent(d.id) + '/duplicate', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1634,6 +1639,10 @@ async function showOpen() {
           toast('Duplicated "' + d.name + '"');
         } catch (err) {
           toast('Duplicate failed - ' + (err && err.message ? err.message : err));
+        } finally {
+          dup.dataset.busy = '0';
+          dup.disabled = false;
+          dup.textContent = label;
         }
       };
       row.append(open, share, dup, del);

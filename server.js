@@ -319,6 +319,23 @@ app.delete('/api/drawings/:id', async (req, res) => {
   }
 });
 
+// Auto-number a copy name among this user's drawings: 'X (copy)', then 'X (copy 2)', etc.
+async function nextCopyName(baseName, owner) {
+  const base = String(baseName || 'Drawing');
+  const { rows } = await pool.query(
+    "SELECT name FROM drawings WHERE owner = $1 AND (name = $2 OR name LIKE $2 || ' (copy%')",
+    [owner, base]
+  );
+  const used = new Set(rows.map((r) => r.name));
+  let n = 1;
+  let candidate = base + ' (copy)';
+  while (used.has(candidate)) {
+    n += 1;
+    candidate = base + ' (copy ' + n + ')';
+  }
+  return candidate;
+}
+
 app.post('/api/drawings/:id/duplicate', requireAuth, async (req, res) => {
   try {
     const { rows: found } = await pool.query('SELECT id, name, data, owner FROM drawings WHERE id = $1', [
@@ -329,7 +346,11 @@ app.post('/api/drawings/:id/duplicate', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Only the owner can duplicate this drawing' });
     }
     const id = newId();
-    const name = (found[0].name || 'Drawing') + ' (copy)';
+    // Optional custom name from the request body; otherwise auto-number against the owner's drawings.
+    let name = null;
+    const wanted = req.body && typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    if (wanted) name = wanted.slice(0, 120);
+    if (!name) name = await nextCopyName(found[0].name, req.user);
     const { rows } = await pool.query(
       'INSERT INTO drawings (id, name, data, owner) VALUES ($1, $2, $3, $4) RETURNING id, name, rev, updated_at',
       [id, name, JSON.stringify(found[0].data), req.user]
