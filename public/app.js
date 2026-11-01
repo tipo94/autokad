@@ -664,7 +664,7 @@ const PROMPTS = {
   measure: 'Measure: pick first point',
   move: 'Move: select objects then press Enter, then pick base point',
   copy: 'Copy: select objects then press Enter, then pick base point',
-  rotate: 'Rotate: select objects then press Enter, then pick centre',
+  rotate: 'Rotate: select objects then press Enter, then pick centre, then drag (Shift = snap 15°)',
   erase: 'Erase: click objects to delete',
   offset: 'Offset: pick an object to offset',
 };
@@ -949,9 +949,11 @@ cv.addEventListener('mousemove', (ev) => {
     return;
   }
   if (state.drag && state.drag.mode === 'rotate') {
-    const ang = Math.atan2(p[1] - state.drag.center[1], p[0] - state.drag.center[0]) - state.drag.lastAng;
+    let target = Math.atan2(p[1] - state.drag.center[1], p[0] - state.drag.center[0]);
+    if (ev.shiftKey) target = Math.round(target / (Math.PI / 12)) * (Math.PI / 12);
+    const ang = target - state.drag.lastAng;
     applyRotate(state.drag.ents, state.drag.center, ang);
-    state.drag.lastAng += ang;
+    state.drag.lastAng = target;
     draw(); renderProps();
     return;
   }
