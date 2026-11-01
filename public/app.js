@@ -788,6 +788,26 @@ function applyRotate(ents, c, ang) {
     if (e.type === 'text') { /* rotation not modelled */ }
   }
 }
+/* Mirror entities across a vertical axis (mode 'x') or horizontal axis (mode 'y')
+   passing through the point `at`. Angles for arcs/dimensions are mirrored too. */
+function applyMirror(ents, mode, at) {
+  const mx = (p) => mode === 'x' ? [2 * at[0] - p[0], p[1]] : [p[0], 2 * at[1] - p[1]];
+  for (const e of ents) {
+    if (e.p1) e.p1 = mx(e.p1);
+    if (e.p2) e.p2 = mx(e.p2);
+    if (e.c) e.c = mx(e.c);
+    if (e.p) e.p = mx(e.p);
+    if (e.pts) e.pts = e.pts.map(mx);
+    if (e.type === 'arc') {
+      // axis angle: vertical mirror -> 90deg, horizontal mirror -> 0deg (in CCW degrees)
+      const A = mode === 'x' ? 180 : 0;
+      const mir = (a) => ((A - a) % 360 + 360) % 360;
+      const n0 = mir(e.a0), n1 = mir(e.a1);
+      e.a0 = n1; e.a1 = n0; // swap keeps the sweep direction after reflection
+    }
+  }
+}
+
 function cloneEnt(e) {
   const c = JSON.parse(JSON.stringify(e));
   c.id = newId();
@@ -1308,6 +1328,8 @@ window.addEventListener('keydown', (ev) => {
   if (mod && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveDrawing(); return; }
   if (mod && ev.key.toLowerCase() === 'c') { ev.preventDefault(); copySelection(); return; }
   if (mod && ev.key.toLowerCase() === 'v') { ev.preventDefault(); pasteSelection(); return; }
+  if (ev.shiftKey && ev.key.toLowerCase() === 'x') { ev.preventDefault(); mirrorSelection('x'); return; }
+  if (ev.shiftKey && ev.key.toLowerCase() === 'y') { ev.preventDefault(); mirrorSelection('y'); return; }
 
   if (ev.key === 'Enter') { ev.preventDefault(); keyEnter(); return; }
   if (ev.key === 'Escape') { ev.preventDefault(); keyEscape(); return; }
@@ -1374,6 +1396,17 @@ function pasteSelection() {
   state.sel = new Set(copies.map(c => c.id));
   state.dirty = true; markDirty(); renderAll();
   setPrompt('Pasted ' + copies.length + ' object(s)');
+}
+
+function mirrorSelection(mode) {
+  const ents = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer));
+  if (!ents.length) { toast('Select objects to mirror first'); return; }
+  const ex = extentsOf(ents);
+  const at = [(ex.x0 + ex.x1) / 2, (ex.y0 + ex.y1) / 2];
+  pushUndo();
+  applyMirror(ents, mode, at);
+  state.dirty = true; markDirty(); renderAll();
+  setPrompt('Mirrored ' + ents.length + ' object(s) ' + (mode === 'x' ? 'horizontally' : 'vertically'));
 }
 
 /* ---------- view ---------- */
@@ -2107,6 +2140,8 @@ function wireUI() {
   on('btnShare', () => shareDrawing());
   on('btnAddLayer', () => addLayer());
   on('btnSelLayer', () => moveSelectionToLayer());
+  on('btnMirrorX', () => mirrorSelection('x'));
+  on('btnMirrorY', () => mirrorSelection('y'));
 
   const exp = document.getElementById('btnExport');
   const menu = document.getElementById('exportMenu');
