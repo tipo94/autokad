@@ -30,6 +30,10 @@ const state = {
   clipboard: null,
   mouseWorld: { x: 0, y: 0 },
   preview: null,
+  filletPick: null,
+  filletPreview: null,
+  trimPick: null,       // boundary entity (trim) or null (extend: all entities as boundaries)
+  trimHover: null,      // preview { ent, pt1, pt2 } for trim/extend
 };
 
 const TAU = Math.PI * 2;
@@ -230,20 +234,32 @@ function snapCandidates() {
 function snapPoint(world) {
   let p = world.slice();
   state.snapHit = null;
+  let best = null;
   if (state.osnap) {
     const tol = 13 / state.view.zoom;
-    let best = null, bd = tol;
+    let bd = tol;
     for (const [kind, cp] of snapCandidates()) {
       const d = dist(cp, world);
       if (d < bd) { bd = d; best = [kind, cp]; }
     }
-    if (best) { state.snapHit = best; return best[1].slice(); }
   }
   if (state.ortho && state.lastPt) {
+    // Ortho defines the allowed axis first. Object/grid snapping may adjust
+    // position along that axis only, preserving the anchor's perpendicular coordinate.
     const d = sub(p, state.lastPt);
-    if (Math.abs(d[0]) >= Math.abs(d[1])) p = [p[0], state.lastPt[1]];
-    else p = [state.lastPt[0], p[1]];
-  } else if (state.polar && state.lastPt) {
+    const horizontal = Math.abs(d[0]) >= Math.abs(d[1]);
+    const axisValue = best ? best[1][horizontal ? 0 : 1] : p[horizontal ? 0 : 1];
+    p = horizontal ? [axisValue, state.lastPt[1]] : [state.lastPt[0], axisValue];
+    if (best) state.snapHit = best;
+    if (state.gridSnap) {
+      const g = state.gridStep;
+      if (horizontal) p[0] = Math.round(p[0] / g) * g;
+      else p[1] = Math.round(p[1] / g) * g;
+    }
+    return p;
+  }
+  if (best) { state.snapHit = best; return best[1].slice(); }
+  if (state.polar && state.lastPt) {
     const d = sub(p, state.lastPt);
     const step = 45 * Math.PI / 180;
     const a = Math.round(Math.atan2(d[1], d[0]) / step) * step;
@@ -452,6 +468,65 @@ function drawSelection(ents) {
   ctx.restore();
 }
 
+function drawVertexHandles() {
+  const ent = state.vertexEnt && state.doc.entities.find(e => e.id === state.vertexEnt && e.type === 'polyline');
+  if (!ent) return;
+  ctx.save();
+  // midpoints: circles (insert)
+  for (let i = 0; i < ent.pts.length - 1; i++) {
+    const m = w2s(mid(ent.pts[i], ent.pts[i + 1]));
+    ctx.strokeStyle = '#7fd1ff';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(m[0], m[1], 4.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // vertices: squares (move)
+  for (let i = 0; i < ent.pts.length; i++) {
+    const s = w2s(ent.pts[i]);
+    if (i === state.vertexIdx) { ctx.fillStyle = '#ffb454'; ctx.fillRect(s[0] - 5, s[1] - 5, 10, 10); }
+    else { ctx.fillStyle = '#e8eef7'; ctx.fillRect(s[0] - 4, s[1] - 4, 8, 8); }
+  }
+  ctx.restore();
+}
+
+function drawOrthoGuide() {
+  // Live guide line while ortho/polar constrains the cursor. Overlay only:
+  // drawn straight onto the canvas, never a document entity, never in undo.
+  // Reads the already-computed mouse state; no snapPoint() call here.
+  if (!state.doc) return;
+  if (!state.ortho && !state.polar) return;
+  const t = state.tool;
+  const drawing = ['line', 'polyline', 'rect', 'circle', 'arc', 'dim', 'measure'].includes(t) &&
+                  state.pending.length >= 1;
+  const anchor = drawing ? state.pending[state.pending.length - 1]
+              : (state.drag && state.drag.mode === 'move') ? state.drag.base
+              : null;
+  if (!anchor) return;
+  const p = state.snapPoint ? snapPoint(state.mouseWorld || anchor) : (state.mouseWorld || anchor);
+  const d = sub(p, anchor);
+  if (Math.hypot(d[0], d[1]) < 1e-9) return; // degenerate: cursor on anchor
+  const a = w2s(anchor);
+  ctx.save();
+  ctx.strokeStyle = state.ortho ? '#7fd1ff' : '#c9a6ff';
+  ctx.lineWidth = 1.2;
+  ctx.setLineDash([8, 5]);
+  // extend the guide beyond the cursor a little for readability
+  const ext = 40 / state.view.zoom;
+  const L = Math.hypot(d[0], d[1]);
+  const end = [p[0] + d[0] / L * ext, p[1] + d[1] / L * ext];
+  const c = w2s(end);
+  ctx.beginPath();
+  ctx.moveTo(a[0], a[1]);
+  ctx.lineTo(c[0], c[1]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.arc(a[0], a[1], 3, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawSnapMarker() {
   if (!state.snapHit) return;
   const [kind, p] = state.snapHit;
@@ -508,6 +583,32 @@ function drawMeasure() {
 }
 
 function drawPreview() {
+  if (state.trimPick) {
+    const be = state.doc.entities.find(e => e.id === state.trimPick.id);
+    if (be) {
+      ctx.save(); ctx.strokeStyle = '#7fb2ff'; ctx.lineWidth = 2.2; ctx.setLineDash([3, 3]);
+      pathFor(be); ctx.stroke(); ctx.restore();
+    }
+  }
+  if (state.trimHover) {
+    const he = state.doc.entities.find(e => e.id === state.trimHover.entId);
+    if (he) {
+      ctx.save(); ctx.strokeStyle = '#7fffd0'; ctx.lineWidth = 2.6; ctx.setLineDash([6, 3]);
+      pathFor(he); ctx.stroke();
+      const mark = state.trimHover.cut || state.trimHover.newEnd;
+      if (mark) {
+        const s = w2s(mark);
+        ctx.setLineDash([]);
+        ctx.beginPath(); ctx.arc(s[0], s[1], 4, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+  if (state.filletPreview) {
+    const fpv = state.filletPreview;
+    ctx.save(); ctx.strokeStyle = '#ffb454'; ctx.lineWidth = 1.4; ctx.setLineDash([5, 4]);
+    pathFor(fpv); ctx.stroke(); ctx.restore();
+  }
   const pv = state.preview;
   if (!pv) return;
   ctx.save();
@@ -529,7 +630,9 @@ function draw() {
     drawPreview();
     const selEnts = state.doc.entities.filter(e => state.sel.has(e.id));
     if (selEnts.length) drawSelection(selEnts);
+    if (state.tool === 'vertex') drawVertexHandles();
   }
+  drawOrthoGuide();
   drawMeasure();
   if (state.rubber) {
     const { x0, y0, x1, y1 } = state.rubber;
@@ -667,6 +770,10 @@ const PROMPTS = {
   rotate: 'Rotate: select objects then press Enter, then pick centre, then drag (Shift = snap 15°)',
   erase: 'Erase: click objects to delete',
   offset: 'Offset: pick an object to offset',
+  fillet: 'Fillet: pick first line near the corner',
+  trim: 'Trim: pick boundary object (or right-click to skip and use nearest intersections)',
+  extend: 'Extend: pick an object to reach the next boundary',
+  vertex: 'Vertex edit: click a polyline, then drag a vertex (Del = delete one, midpoint circles = insert)',
 };
 
 function setTool(t) {
@@ -676,7 +783,14 @@ function setTool(t) {
   state.drag = null;
   state.phase = null;
   state.offsetEnt = null;
+  state.filletPick = null;
+  state.filletPreview = null;
+  state.trimPick = null;
+  state.trimHover = null;
   state.measureResult = null;
+  state.vertexEnt = null;
+  state.vertexIdx = null;
+  state.vertexHover = null;
   document.querySelectorAll('.tool').forEach(b => b.classList.toggle('active', b.dataset.tool === t));
   setPrompt(PROMPTS[t] || 'Ready');
   cv.classList.toggle('grab', t === 'select');
@@ -892,19 +1006,35 @@ function hudAnchor() {
   if (state.pending && state.pending.length) return state.pending[state.pending.length - 1];
   return null;
 }
-function updateMeasureHud(p, raw) {
+let hudPending = null, hudRaf = 0;
+function updateMeasureHud(p, raw, coords) {
+  // rAF-throttled: DOM readout updates at most once per frame (display-only overlay).
+  hudPending = { p, raw, coords };
+  if (hudRaf) return;
+  hudRaf = requestAnimationFrame(() => {
+    hudRaf = 0;
+    const d = hudPending; hudPending = null;
+    if (d.coords) {
+      document.getElementById('hx').textContent = d.coords[0];
+      document.getElementById('hy').textContent = d.coords[1];
+      document.getElementById('hz').textContent = d.coords[2];
+    }
+    renderMeasureHud(d.p);
+  });
+}
+function renderMeasureHud(p) {
   const row = document.getElementById('hud-measure');
   if (!row) return;
   const a = hudAnchor();
   if (!a) { row.style.display = 'none'; return; }
   const dx = p[0] - a[0], dy = p[1] - a[1];
   const len = Math.hypot(dx, dy);
-  let ang = Math.atan2(dy, dx) * 180 / Math.PI;
+  let ang = deg(Math.atan2(dy, dx));
   if (ang < 0) ang += 360;
   const g = state.gridSnap ? state.gridStep : 0; // snap grid size for rounding
   const r = (v) => g ? Math.round(v / g) * g : v;
   document.getElementById('hl').textContent = fmt(r(len));
-  document.getElementById('ha').textContent = Math.round(r(ang)) + '°';
+  document.getElementById('ha').textContent = fmt(r(ang)) + '°';
   document.getElementById('hd').textContent = fmt(r(dx)) + ', ' + fmt(r(dy));
   row.style.display = 'flex';
 }
@@ -923,10 +1053,7 @@ cv.addEventListener('mousemove', (ev) => {
   state.mouseWorld = raw;
   const p = snapPoint(raw);
   const sp = w2s(p);
-  document.getElementById('hx').textContent = fmt(p[0]);
-  document.getElementById('hy').textContent = fmt(p[1]);
-  document.getElementById('hz').textContent = Math.round(state.view.zoom * 100) + '%';
-  updateMeasureHud(p, raw);
+  updateMeasureHud(p, raw, [fmt(p[0]), fmt(p[1]), Math.round(state.view.zoom * 100) + '%']);
 
   if (panning) {
     const dx = ev.clientX - panning.x, dy = ev.clientY - panning.y;
@@ -936,6 +1063,18 @@ cv.addEventListener('mousemove', (ev) => {
     return;
   }
 
+  if (state.drag && state.drag.mode === 'vertex') {
+    const ent = state.doc.entities.find(e => e.id === state.drag.entId);
+    if (!ent) { state.drag = null; draw(); return; }
+    // one undo entry per drag gesture: push lazily on the first real move
+    if (!state.drag.moved) { pushUndo(); state.drag.moved = true; }
+    state.vertexIdx = state.drag.idx;
+    // Alt = free move (no snapping); otherwise osnap/grid apply
+    const np = ev.altKey ? raw.slice() : p;
+    ent.pts[state.drag.idx] = np.slice();
+    draw(); renderProps();
+    return;
+  }
   if (state.drag && state.drag.mode === 'move') {
     const d = sub(p, state.drag.base);
     if (!state.drag.moved && dist(p, state.drag.base) > 0) {
@@ -975,6 +1114,21 @@ cv.addEventListener('mousemove', (ev) => {
       const ent = applyOffset(state.offsetEnt, calc);
       ent.type = ent.type; // keep
       state.preview = ent;
+    }
+  } else if (t === 'fillet' && state.filletPick) {
+    const hit = pickAt(worldFromEvent(ev));
+    state.filletPreview = null;
+    if (hit && (hit.type === 'line' || hit.type === 'polyline')) {
+      const res = filletGeom(state.filletPick, hit, worldFromEvent(ev), defaultFilletRadius(), false);
+      if (res) state.filletPreview = res.arc;
+    }
+  } else if (t === 'trim' || t === 'extend') {
+    state.trimHover = null;
+    const w = worldFromEvent(ev);
+    const hit = pickAt(w);
+    if (hit && (hit.type === 'line' || (hit.type === 'polyline' && hit.pts.length === 2))) {
+      const res = t === 'trim' ? trimGeom(hit, w) : extendGeom(hit, w);
+      if (res) state.trimHover = { mode: t, entId: hit.id, cut: res.cut || null, newEnd: res.newEnd || null };
     }
   } else if (t === 'measure' && state.pending.length === 1) {
     state.preview = { type: 'line', layer: state.doc.currentLayer, p1: state.pending[0], p2: p };
@@ -1060,6 +1214,86 @@ cv.addEventListener('mousedown', (ev) => {
     return;
   }
 
+  if (t === 'fillet') {
+    if (!state.filletPick) {
+      const hit = pickAt(raw);
+      if (!hit) return;
+      if (!(hit.type === 'line' || hit.type === 'polyline')) { setPrompt('Fillet: pick a line or polyline'); return; }
+      state.filletPick = hit;
+      setPrompt('Fillet: pick the second object near the corner (Shift = chamfer, right-click = cancel)');
+      draw();
+      return;
+    }
+    const p1 = pickAt(raw);
+    if (!p1) return;
+    const chamfer = ev.shiftKey;
+    pushUndo();
+    const done = applyFillet(state.filletPick, p1, raw, chamfer ? 0.0001 : defaultFilletRadius(), chamfer);
+    if (done) { state.dirty = true; markDirty(); renderAll();
+      setPrompt((chamfer ? 'Chamfered' : 'Fillet done') + ' r=' + defaultFilletRadius() + ' — pick first line again');
+    } else {
+      setPrompt('Fillet: no tangent corner found at that corner — pick again');
+      state.undo.pop();
+    }
+    state.filletPick = null;
+    state.filletPreview = null;
+    draw();
+    return;
+  }
+
+  if (t === 'trim') {
+    const hit = pickAt(raw);
+    if (!hit) return;
+    if (!(hit.type === 'line' || (hit.type === 'polyline' && hit.pts.length === 2))) {
+      setPrompt('Trim: pick a line or 2-point polyline'); return;
+    }
+    if (ev.altKey && state.trimPick) { state.trimPick = null; } // alt = cut against all entities
+    if (!state.trimPick && !ev.altKey) {
+      // first click sets the cutting edge
+      state.trimPick = hit;
+      setPrompt('Trim: pick the part to cut (right-click = clear boundary, Alt-click = cut against all)');
+      draw(); return;
+    }
+    if (state.trimPick === hit) {
+      // clicking the boundary itself again clears it (fallback mode)
+      state.trimPick = null;
+      setPrompt('Trim: boundary cleared — cuts use the nearest crossing entity');
+      draw(); return;
+    }
+    pushUndo();
+    const done = applyTrim(hit, raw);
+    if (done) {
+      state.doc.entities = state.doc.entities.filter(e => e.id !== hit.id);
+      state.doc.entities.push(done.add);
+      state.dirty = true; markDirty(); renderAll();
+      setPrompt('Trimmed — pick the next part to cut (right-click = clear boundary)');
+    } else {
+      state.undo.pop();
+      setPrompt('Trim: no crossing found — pick again');
+    }
+    draw();
+    return;
+  }
+
+  if (t === 'extend') {
+    const hit = pickAt(raw);
+    if (!hit) return;
+    if (!(hit.type === 'line' || (hit.type === 'polyline' && hit.pts.length === 2))) {
+      setPrompt('Extend: pick a line or 2-point polyline'); return;
+    }
+    pushUndo();
+    const done = applyExtend(hit, raw);
+    if (done) {
+      state.dirty = true; markDirty(); renderAll();
+      setPrompt('Extended — pick the next end');
+    } else {
+      state.undo.pop();
+      setPrompt('Extend: no boundary ahead along that direction — pick again');
+    }
+    draw();
+    return;
+  }
+
   if (t === 'erase') {
     const hit = pickAt(raw);
     if (hit) {
@@ -1125,6 +1359,57 @@ cv.addEventListener('mousedown', (ev) => {
     // phase 2/3 handled below
   }
 
+  if (t === 'vertex') {
+    const tol = tolWorld(); // ~7 px at current zoom
+    if (state.vertexEnt) {
+      const ent = state.doc.entities.find(e => e.id === state.vertexEnt && e.type === 'polyline' && !lockedLayer(e.layer));
+      if (ent) {
+        // priority 1: existing vertex handles (squares)
+        let best = null, bd = tol;
+        for (let i = 0; i < ent.pts.length; i++) {
+          const d = dist(ent.pts[i], raw);
+          if (d < bd) { bd = d; best = i; }
+        }
+        if (best !== null) {
+          state.vertexIdx = best;
+          // drag starts lazily (no undo until a real move)
+          state.drag = { mode: 'vertex', entId: ent.id, idx: best, moved: false };
+          setPrompt('Vertex: drag to move (Alt = free move, no snap); Del = delete this vertex');
+          draw(); return;
+        }
+        // priority 2: midpoint handles (insert a vertex)
+        let mi = null, md = tol;
+        for (let i = 0; i < ent.pts.length - 1; i++) {
+          const m = mid(ent.pts[i], ent.pts[i + 1]);
+          const d = dist(m, raw);
+          if (d < md) { md = d; mi = i; }
+        }
+        if (mi !== null) {
+          pushUndo();
+          ent.pts.splice(mi + 1, 0, mid(ent.pts[mi], ent.pts[mi + 1]));
+          state.vertexIdx = mi + 1;
+          state.dirty = true; markDirty();
+          setPrompt('Vertex inserted — drag it or pick another handle');
+          draw(); renderProps(); return;
+        }
+      }
+    }
+    // priority 3: pick a polyline body to edit
+    const hit = pickAt(raw);
+    if (hit && hit.type === 'polyline') {
+      state.vertexEnt = hit.id;
+      state.vertexIdx = null;
+      state.sel.clear();
+      setPrompt('Polyline picked: ' + hit.pts.length + ' vertices — drag a square to move, a circle to insert, Del to delete');
+    } else {
+      // empty canvas or non-polyline: leave edit mode
+      state.vertexEnt = null;
+      state.vertexIdx = null;
+      setPrompt('Vertex edit: click a polyline to expose its vertices');
+    }
+    draw(); renderProps(); return;
+  }
+
   if (t === 'measure') {
     state.pending.push(p);
     if (state.pending.length === 1) {
@@ -1145,6 +1430,12 @@ cv.addEventListener('mousedown', (ev) => {
 
 window.addEventListener('mouseup', (ev) => {
   if (panning) { panning = null; cv.classList.remove('grabbing'); return; }
+  if (state.drag && state.drag.mode === 'vertex') {
+    if (state.drag.moved) { state.dirty = true; markDirty(); } // autosave only on gesture commit
+    state.drag = null;
+    renderAll();
+    return;
+  }
   if (state.drag && state.drag.mode === 'move') {
     state.dirty = true; markDirty(); state.drag = null; renderAll(); return;
   }
@@ -1184,7 +1475,14 @@ cv.addEventListener('wheel', (ev) => {
   draw();
 }, { passive: false });
 
-cv.addEventListener('contextmenu', (ev) => ev.preventDefault());
+cv.addEventListener('contextmenu', (ev) => {
+  ev.preventDefault();
+  if (state.tool === 'trim') {
+    if (state.trimPick) { state.trimPick = null; setPrompt('Trim: pick the part to cut (nearest intersection is the cut edge)'); }
+    else { setTool('trim'); }
+    draw();
+  }
+});
 
 function finishPolyline() {
   if (state.tool === 'polyline' && state.pending.length >= 2) {
@@ -1301,6 +1599,318 @@ function keyEnter() {
   draw();
 }
 
+
+/* ---------- fillet / chamfer ---------- */
+function defaultFilletRadius() { return 10; }
+
+function linePar(a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1;
+  return { px: a[0], py: a[1], ux: dx / len, uy: dy / len, len };
+}
+function lineIsect(l1, l2) {
+  const den = l1.ux * l2.uy - l1.uy * l2.ux;
+  if (Math.abs(den) < 1e-9) return null;
+  const t = ((l2.px - l1.px) * l2.uy - (l2.py - l1.py) * l2.ux) / den;
+  return [l1.px + t * l1.ux, l1.py + t * l1.uy];
+}
+function cornerOn(ent, near) {
+  // the segment endpoint (corner vertex) closest to the pick point
+  if (ent.type === 'line') return ent.p1[0] * ent.p1[0] + ent.p1[1] * ent.p1[1] <= ent.p2[0] * ent.p2[0] + ent.p2[1] * ent.p2[1] ? ent.p1 : ent.p2;
+  if (ent.type === 'polyline') {
+    let best = null, bd = Infinity;
+    for (const q of ent.pts) { const d = (q[0] - near[0]) ** 2 + (q[1] - near[1]) ** 2; if (d < bd) { bd = d; best = q; } }
+    return best;
+  }
+  return null;
+}
+function filletGeom(e1, e2, near1, r, chamfer) {
+  // e1, e2: entities; near1: pick point on e1 (chamfer/fillet side hint for lines)
+  // returns { arc, trim1, trim2, inserted } or null
+  const segA = segOf(e1, near1), segB = segOf(e2, near1);
+  if (!segA || !segB) return null;
+  const l1 = linePar(segA[0], segA[1]), l2 = linePar(segB[0], segB[1]);
+  const X = lineIsect(l1, l2);
+  if (!X) return null;
+  const ang = Math.abs(Math.atan2(l1.ux * l2.uy - l1.uy * l2.ux, l1.ux * l2.ux + l1.uy * l2.uy));
+  if (ang < 1e-4) return null;
+  // direction from corner into the segment bodies (away from the pick ends)
+  const d1 = segDirInto(segA, X), d2 = segDirInto(segB, X);
+  if (!d1 || !d2) return null;
+  const half = ang / 2;
+  const bis = [ (d1[0] + d2[0]), (d1[1] + d2[1]) ];
+  const bl = Math.hypot(bis[0], bis[1]) || 1;
+  bis[0] /= bl; bis[1] /= bl;
+  const cdist = r / Math.sin(half);
+  const C = [X[0] + bis[0] * cdist, X[1] + bis[1] * cdist];
+  // tangent points on each line: foot of perpendicular from C
+  const t1 = [X[0] + d1[0] * (r / Math.tan(half)), X[1] + d1[1] * (r / Math.tan(half))];
+  const t2 = [X[0] + d2[0] * (r / Math.tan(half)), X[1] + d2[1] * (r / Math.tan(half))];
+  if (chamfer) {
+    const ch = r; // for v1 chamfer uses the same pick distance
+    const c1 = [X[0] + d1[0] * ch, X[1] + d1[1] * ch];
+    const c2 = [X[0] + d2[0] * ch, X[1] + d2[1] * ch];
+    return { arc: null, trim1: c1, trim2: c2, inserted: { type: 'line', p1: c1, p2: c2 } };
+  }
+  let a0 = deg(Math.atan2(t1[1] - C[1], t1[0] - C[0]));
+  let a1 = deg(Math.atan2(t2[1] - C[1], t2[0] - C[0]));
+  // sweep through the bisector direction, away from the corner
+  let sweep = a1 - a0;
+  while (sweep <= 0) sweep += 360;
+  const midAng = deg(Math.atan2(bis[1], bis[0]));
+  if (!angleInArc(rad(midAng), a0, a1)) { const tmp = a0; a0 = a1; a1 = tmp; sweep = 360 - sweep; }
+  const arc = { type: 'arc', c: C, r, a0, a1 };
+  return { arc, trim1: t1, trim2: t2, inserted: arc };
+}
+function segOf(ent, near) {
+  // nearest segment [a, b] on ent, with its adjacent corner vertex
+  if (ent.type === 'line') {
+    const d1 = (near[0] - ent.p1[0]) ** 2 + (near[1] - ent.p1[1]) ** 2;
+    const d2 = (near[0] - ent.p2[0]) ** 2 + (near[1] - ent.p2[1]) ** 2;
+    return [ent.p1, ent.p2, d1 <= d2 ? ent.p1 : ent.p2];
+  }
+  if (ent.type === 'polyline') {
+    let best = null, bd = Infinity;
+    for (let i = 0; i < ent.pts.length - 1; i++) {
+      const a = ent.pts[i], b = ent.pts[i + 1];
+      const dx = b[0] - a[0], dy = b[1] - a[1], l2v = dx * dx + dy * dy;
+      let tt = l2v ? ((near[0] - a[0]) * dx + (near[1] - a[1]) * dy) / l2v : 0;
+      tt = Math.max(0, Math.min(1, tt));
+      const px = a[0] + tt * dx, py = a[1] + tt * dy;
+      const d = (near[0] - px) ** 2 + (near[1] - py) ** 2;
+      if (d < bd) { bd = d; best = [a, b]; }
+    }
+    if (!best) return null;
+    return [best[0], best[1], cornerOn(ent, near)];
+  }
+  return null;
+}
+function segDirInto(seg, X) {
+  // unit direction from the corner X into the segment body (toward its far endpoint)
+  const corner = seg[2];
+  const far = (seg[0] === corner) ? seg[1] : seg[0];
+  const dx = far[0] - corner[0], dy = far[1] - corner[1];
+  const len = Math.hypot(dx, dy) || 1;
+  // pick the half-line of the infinite line that goes toward the far end from X
+  const dir = [dx / len, dy / len];
+  const toX = [X[0] - corner[0], X[1] - corner[1]];
+  if (dir[0] * toX[0] + dir[1] * toX[1] > 0) return null; // far end is on the corner side of X: degenerate
+  return dir;
+}
+function applyFillet(e1, e2, near1, r, chamfer) {
+  const near2 = near1;
+  const res = filletGeom(e1, e2, near1, r, chamfer);
+  if (!res) return null;
+  if (!chamfer) {
+    if (!res.arc || res.arc.r < 0.01) return null;
+    if (res.trim1[0] * res.trim1[0] + res.trim1[1] * res.trim1[1] > 1e12) return null;
+  }
+  const arc = res.inserted;
+  arc.id = newId();
+  if (!arc.layer) arc.layer = state.doc.currentLayer;
+  // trim: replace e1/e2 endpoint at the corner with the tangent/chamfer points
+  const trimEnt = (ent, to) => {
+    if (ent.type === 'line') {
+      const nearEnd = segOf(ent, near1)[2];
+      const pts = ent === e1 ? 'p1p2' : 'p1p2';
+      if (dist(ent.p1, nearEnd) < 1e-6) ent.p1 = to; else ent.p2 = to;
+    } else if (ent.type === 'polyline') {
+      const corner = cornerOn(ent, near1);
+      const idx = ent.pts.findIndex(q => q === corner);
+      if (idx >= 0) ent.pts[idx] = to;
+    }
+  };
+  if (e1 === e2 && e1.type === 'polyline') {
+    // not supported in v1 (same-entity corner): skip
+    return null;
+  }
+  trimEnt(e1, res.trim1);
+  trimEnt(e2, res.trim2);
+  state.doc.entities.push(arc);
+  return true;
+}
+
+/* ---------- trim / extend ---------- */
+function entSegsFlat(ent) {
+  if (ent.type === 'line') return [[ent.p1, ent.p2]];
+  if (ent.type === 'polyline') {
+    const out = [];
+    for (let i = 0; i < ent.pts.length - 1; i++) out.push([ent.pts[i], ent.pts[i + 1]]);
+    return out;
+  }
+  return [];
+}
+function rectCornersOf(e) {
+  const x0 = Math.min(e.p1[0], e.p2[0]), x1 = Math.max(e.p1[0], e.p2[0]);
+  const y0 = Math.min(e.p1[1], e.p2[1]), y1 = Math.max(e.p1[1], e.p2[1]);
+  return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+}
+function rayIntersectSeg(pa, du, a, b) {
+  // infinite ray pa + s*du vs finite segment ab; returns ray distance s or null
+  const den = du[0] * (b[1] - a[1]) - du[1] * (b[0] - a[0]);
+  if (Math.abs(den) < 1e-9) return null;
+  const s = ((a[0] - pa[0]) * (b[1] - a[1]) - (a[1] - pa[1]) * (b[0] - a[0])) / den;
+  if (s < -1e-7) return null; // behind the ray origin
+  // reject hits beyond the finite segment: segment parameter t
+  const ex = b[0] - a[0], ey = b[1] - a[1];
+  const el2 = ex * ex + ey * ey || 1;
+  const t = ((pa[0] + s * du[0] - a[0]) * ex + (pa[1] + s * du[1] - a[1]) * ey) / el2;
+  if (t < -1e-7 || t > 1 + 1e-7) return null;
+  return s;
+}
+function projT(a, b, p) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const l2v = dx * dx + dy * dy || 1;
+  return Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2v));
+}
+function dist2(a, b) { return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2; }
+/* all intersections of the infinite line through seg with entity e (finite shapes) */
+function lineEntIsects(a, b, e, out) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const len = Math.hypot(dx, dy) || 1;
+  const u = [dx / len, dy / len];
+  const push = (s) => { if (s !== null && s !== undefined) out.push([a[0] + s * u[0], a[1] + s * u[1]]); };
+  if (e.type === 'line') { push(rayIntersectSeg(a, u, e.p1, e.p2)); }
+  else if (e.type === 'polyline') { for (const [p, q] of entSegsFlat(e)) push(rayIntersectSeg(a, u, p, q)); }
+  else if (e.type === 'rect') {
+    const c = rectCornersOf(e);
+    for (const [p, q] of [[c[0], c[1]], [c[1], c[2]], [c[2], c[3]], [c[3], c[0]]]) push(rayIntersectSeg(a, u, p, q));
+  } else if (e.type === 'circle' || e.type === 'arc') {
+    const fx = a[0] - e.c[0], fy = a[1] - e.c[1];
+    const bq = 2 * (fx * u[0] + fy * u[1]);
+    const cq = fx * fx + fy * fy - e.r * e.r;
+    const disc = bq * bq - 4 * cq;
+    if (disc >= 0) {
+      for (const sol of [(-bq - Math.sqrt(disc)) / 2, (-bq + Math.sqrt(disc)) / 2]) {
+        const pt = [a[0] + sol * u[0], a[1] + sol * u[1]];
+        if (e.type === 'arc' && !angleInArc(rad(deg(Math.atan2(pt[1] - e.c[1], pt[0] - e.c[0]))), e.a0, e.a1)) continue;
+        push(sol);
+      }
+    }
+  }
+}
+function boundaryCandidates(excludeIds) {
+  return state.doc.entities.filter(e =>
+    !excludeIds.has(e.id) &&
+    (e.type === 'line' || e.type === 'polyline' || e.type === 'circle' || e.type === 'rect' || e.type === 'arc'));
+}
+function nearestSegOn(ent, nearWorld) {
+  const segs = entSegsFlat(ent);
+  let seg = null, bd = Infinity;
+  for (const [a, b] of segs) {
+    const d = Math.min(dist2(a, nearWorld), dist2(b, nearWorld), segPointDist2(a, b, nearWorld));
+    if (d < bd) { bd = d; seg = [a, b]; }
+  }
+  return seg;
+}
+function segPointDist2(a, b, p) {
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const l2v = dx * dx + dy * dy || 1;
+  let tt = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2v;
+  tt = Math.max(0, Math.min(1, tt));
+  return (p[0] - (a[0] + tt * dx)) ** 2 + (p[1] - (a[1] + tt * dy)) ** 2;
+}
+function endpointNear(ent, nearWorld) {
+  if (ent.type === 'line') {
+    const d1 = dist2(ent.p1, nearWorld), d2 = dist2(ent.p2, nearWorld);
+    return d1 <= d2 ? ent.p1 : ent.p2;
+  }
+  const p0 = ent.pts[0], p1 = ent.pts[ent.pts.length - 1];
+  return dist2(p0, nearWorld) <= dist2(p1, nearWorld) ? p0 : p1;
+}
+function otherEndpoint(ent, end) {
+  if (ent.type === 'line') return end === ent.p1 ? ent.p2 : ent.p1;
+  return end === ent.pts[0] ? ent.pts[ent.pts.length - 1] : ent.pts[0];
+}
+/* TRIM: keep the clicked-side run of the picked segment up to the nearest crossing.
+   Returns { cut, other } or null. */
+function trimGeom(hit, nearWorld) {
+  if (hit.type === 'polyline' && hit.pts.length !== 2) return null;
+  const seg = nearestSegOn(hit, nearWorld);
+  if (!seg) return null;
+  const [a, b] = seg;
+  const isects = [];
+  const bnd = state.trimPick && state.trimPick.id !== hit.id
+    ? state.doc.entities.filter(e => e.id === state.trimPick.id)
+    : boundaryCandidates(new Set([hit.id]));
+  for (const e of bnd) lineEntIsects(a, b, e, isects);
+  if (!isects.length) return null;
+  const clickT = projT(a, b, nearWorld);
+  let best = null;
+  for (const pt of isects) {
+    const t = projT(a, b, pt);
+    if (Math.abs(t - clickT) < 1e-7) continue;
+    const d = Math.abs(t - clickT);
+    if (!best || d < best.d) best = { pt, t, d };
+  }
+  if (!best) return null;
+  return { cut: best.pt, other: best.other, seg, clickT: clickT };
+}
+function applyTrim(hit, nearWorld) {
+  const res = trimGeom(hit, nearWorld);
+  if (!res) return null;
+  const end = endpointNear(hit, nearWorld);
+  const cut = res.cut;
+  if (dist2(end, cut) < 1e-9) return null;
+  const keep = { type: 'line', layer: hit.layer, p1: [end[0], end[1]], p2: [cut[0], cut[1]] };
+  return { remove: hit, add: keep, other: res.other, cut, keptEnd: [end[0], end[1]] };
+}
+/* EXTEND: stretch the picked endpoint to the nearest boundary along its own direction. */
+function extendGeom(hit, nearWorld) {
+  if (hit.type === 'polyline' && hit.pts.length !== 2) return null;
+  const moving = endpointNear(hit, nearWorld);
+  const anchor = otherEndpoint(hit, moving);
+  const du = [moving[0] - anchor[0], moving[1] - anchor[1]];
+  const len = Math.hypot(du[0], du[1]) || 1;
+  if (len < 1e-9) return null;
+  const u = [du[0] / len, du[1] / len];
+  let best = null;
+  for (const e of boundaryCandidates(new Set([hit.id]))) {
+    for (const pt of rayEntIsects(anchor, u, e)) {
+      const s = (pt[0] - anchor[0]) * u[0] + (pt[1] - anchor[1]) * u[1];
+      if (s <= len + 1e-7) continue;
+      if (!best || s < best.s) best = { pt, s, other: e };
+    }
+  }
+  if (!best) return null;
+  return { moving: [moving[0], moving[1]], anchor: [anchor[0], anchor[1]], newEnd: best.pt, other: best.other };
+}
+function rayEntIsects(pa, u, e) {
+  const out = [];
+  if (e.type === 'line') { const s = rayIntersectSeg(pa, u, e.p1, e.p2); if (s !== null) out.push([pa[0] + s * u[0], pa[1] + s * u[1]]); }
+  else if (e.type === 'polyline') { for (const [p, q] of entSegsFlat(e)) { const s = rayIntersectSeg(pa, u, p, q); if (s !== null) out.push([pa[0] + s * u[0], pa[1] + s * u[1]]); } }
+  else if (e.type === 'rect') {
+    const c = rectCornersOf(e);
+    for (const [p, q] of [[c[0], c[1]], [c[1], c[2]], [c[2], c[3]], [c[3], c[0]]]) { const s = rayIntersectSeg(pa, u, p, q); if (s !== null) out.push([pa[0] + s * u[0], pa[1] + s * u[1]]); }
+  } else if (e.type === 'circle' || e.type === 'arc') {
+    const fx = pa[0] - e.c[0], fy = pa[1] - e.c[1];
+    const bq = 2 * (fx * u[0] + fy * u[1]);
+    const cq = fx * fx + fy * fy - e.r * e.r;
+    const disc = bq * bq - 4 * cq;
+    if (disc >= 0) {
+      for (const sol of [(-bq - Math.sqrt(disc)) / 2, (-bq + Math.sqrt(disc)) / 2]) {
+        const pt = [pa[0] + sol * u[0], pa[1] + sol * u[1]];
+        if (e.type === 'arc' && !angleInArc(rad(deg(Math.atan2(pt[1] - e.c[1], pt[0] - e.c[0]))), e.a0, e.a1)) continue;
+        out.push(pt);
+      }
+    }
+  }
+  return out;
+}
+function applyExtend(hit, nearWorld) {
+  const res = extendGeom(hit, nearWorld);
+  if (!res) return null;
+  const ent = hit;
+  if (ent.type === 'line') {
+    if (ent.p1 === res.moving || dist2(ent.p1, res.moving) < dist2(ent.p2, res.moving)) ent.p1 = [res.newEnd[0], res.newEnd[1]];
+    else ent.p2 = [res.newEnd[0], res.newEnd[1]];
+  } else {
+    const i = dist2(ent.pts[0], res.moving) <= dist2(ent.pts[ent.pts.length - 1], res.moving) ? 0 : ent.pts.length - 1;
+    ent.pts[i] = [res.newEnd[0], res.newEnd[1]];
+  }
+  return { other: res.other, newEnd: res.newEnd };
+}
+
 function keyEscape() {
   state.pending = [];
   state.preview = null;
@@ -1313,7 +1923,24 @@ function keyEscape() {
   draw();
 }
 
+function setCommandGuide(open) {
+  const panel = document.getElementById('commandGuide');
+  const button = document.getElementById('btnCommandGuide');
+  if (!panel || !button) return;
+  const visible = Boolean(open);
+  const wasVisible = panel.classList.contains('show');
+  panel.classList.toggle('show', visible);
+  panel.setAttribute('aria-hidden', String(!visible));
+  button.setAttribute('aria-expanded', String(visible));
+  if (visible) document.getElementById('guideSearch').focus();
+  else if (wasVisible) button.focus();
+}
+
 window.addEventListener('keydown', (ev) => {
+  const guide = document.getElementById('commandGuide');
+  const guideOpen = guide && guide.classList.contains('show');
+  if (guideOpen && ev.key === 'Escape') { ev.preventDefault(); setCommandGuide(false); return; }
+  if (guideOpen && ev.target.id !== 'guideSearch') return;
   const tag = (ev.target.tagName || '').toLowerCase();
   const typing = tag === 'input' || tag === 'textarea';
   if (ev.key === ' ') {
@@ -1323,6 +1950,7 @@ window.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') ev.target.blur();
     return;
   }
+  if (ev.key === '?' || (ev.shiftKey && ev.key === '/')) { ev.preventDefault(); setCommandGuide(true); return; }
   const mod = ev.ctrlKey || ev.metaKey;
   if (mod && ev.key.toLowerCase() === 'z') { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
   if (mod && ev.key.toLowerCase() === 'y') { ev.preventDefault(); redo(); return; }
@@ -1332,11 +1960,27 @@ window.addEventListener('keydown', (ev) => {
   if (mod && ev.key.toLowerCase() === 'v') { ev.preventDefault(); pasteSelection(); return; }
   if (ev.shiftKey && ev.key.toLowerCase() === 'x') { ev.preventDefault(); mirrorSelection('x'); return; }
   if (ev.shiftKey && ev.key.toLowerCase() === 'y') { ev.preventDefault(); mirrorSelection('y'); return; }
+  if (ev.shiftKey && ev.key.toLowerCase() === 'a') { ev.preventDefault(); arraySelection(); return; }
+  if (ev.shiftKey && ev.key.toLowerCase() === 'p') { ev.preventDefault(); polarArrayDialog(); return; }
 
   if (ev.key === 'Enter') { ev.preventDefault(); keyEnter(); return; }
   if (ev.key === 'Escape') { ev.preventDefault(); keyEscape(); return; }
   if (ev.key === 'Delete' || ev.key === 'Backspace') {
     ev.preventDefault();
+    // vertex-edit mode: delete the active vertex (allow down to 2 points = still a line)
+    if (state.tool === 'vertex' && state.vertexEnt && state.vertexIdx != null) {
+      const ent = state.doc.entities.find(e => e.id === state.vertexEnt && e.type === 'polyline');
+      if (ent && ent.pts.length > 2) {
+        pushUndo();
+        ent.pts.splice(state.vertexIdx, 1);
+        state.vertexIdx = null;
+        state.dirty = true; markDirty(); renderAll();
+        setPrompt('Vertex deleted (' + ent.pts.length + ' left) — minimum is 2 (a straight line)');
+      } else if (ent) {
+        setPrompt('Cannot delete: a polyline keeps at least 2 vertices (delete the entity with Erase instead)');
+      }
+      return;
+    }
     deleteSelection();
     return;
   }
@@ -1356,7 +2000,7 @@ window.addEventListener('keydown', (ev) => {
 
   const k = ev.key.toLowerCase();
   const map = { v: 'select', l: 'line', p: 'polyline', r: 'rect', c: 'circle', a: 'arc',
-                t: 'text', d: 'dim', u: 'measure', m: 'move', e: 'erase', o: 'rotate' };
+                t: 'text', d: 'dim', u: 'measure', m: 'move', e: 'erase', o: 'rotate', q: 'vertex' };
   if (k === 'f' && !mod) { ev.preventDefault(); fitView(); return; }
   if (map[k] && !ev.altKey) { ev.preventDefault(); setTool(map[k]); }
 });
@@ -1369,7 +2013,16 @@ function toggle(prop, btnId) {
   state[prop] = !state[prop];
   document.getElementById(btnId).classList.toggle('on', state[prop]);
   if (prop === 'showGrid') draw();
-  if (prop === 'ortho' || prop === 'polar' || prop === 'gridSnap' || prop === 'osnap') setPrompt('Ready');
+  if (prop === 'ortho' || prop === 'polar' || prop === 'gridSnap' || prop === 'osnap') {
+    // guide line must clear immediately, even mid-drag, when toggled off
+    if (state.mouseWorld) snapPoint(state.mouseWorld); // refresh snap/ortho state before redraw
+    draw();
+    if (prop === 'ortho') setPrompt(state.ortho ? 'Ortho on — draw/move locked to horizontal/vertical (F8 to toggle)'
+                                                : 'Ready');
+    else if (prop === 'polar') setPrompt(state.polar ? 'Polar on — angles snap to 45° steps (F10 to toggle)'
+                                                     : 'Ready');
+    else setPrompt('Ready');
+  }
 }
 
 /* ---------- edit ops ---------- */
@@ -1399,6 +2052,95 @@ function pasteSelection() {
   state.dirty = true; markDirty(); renderAll();
   setPrompt('Pasted ' + copies.length + ' object(s)');
 }
+
+
+/* ---------- rectangular array ---------- */
+function arraySelection() {
+  const ents = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer));
+  if (!ents.length) { toast('Select objects to array first'); return; }
+  document.getElementById('arrRows').value = '2';
+  document.getElementById('arrCols').value = '2';
+  document.getElementById('arrDx').value = '';
+  document.getElementById('arrDy').value = '';
+  document.getElementById('arrayModal').classList.add('show');
+  document.getElementById('arrRows').focus();
+}
+function closeArrayModal() { document.getElementById('arrayModal').classList.remove('show'); }
+function arrayApply() {
+  const rows = Math.max(1, Math.floor(parseFloat(document.getElementById('arrRows').value) || 1));
+  const cols = Math.max(1, Math.floor(parseFloat(document.getElementById('arrCols').value) || 1));
+  const dx = parseFloat(document.getElementById('arrDx').value);
+  const dy = parseFloat(document.getElementById('arrDy').value);
+  closeArrayModal();
+  if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) { toast('Enter a spacing for X or Y'); return; }
+  const ents = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer));
+  if (!ents.length) { toast('Select objects to array first'); return; }
+  if (rows * cols - 1 > 2000) { toast('Array too large (max 2000 copies)'); return; }
+  pushUndo();
+  const copies = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (r === 0 && c === 0) continue;
+      const offs = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer)).map(e => {
+        const k = JSON.parse(JSON.stringify(e)); k.id = newId(); return k;
+      });
+      applyTranslate(offs, [dx * c, dy * r]);
+      copies.push(...offs);
+    }
+  }
+  state.doc.entities.push(...copies);
+  state.sel = new Set(copies.map(c => c.id));
+  state.dirty = true; markDirty(); renderAll();
+  setPrompt('Arrayed ' + ents.length + ' object(s) into ' + rows + 'x' + cols);
+}
+document.getElementById('arrCancel').onclick = closeArrayModal;
+document.getElementById('arrOk').onclick = arrayApply;
+document.getElementById('arrayModal').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') arrayApply();
+  if (ev.key === 'Escape') closeArrayModal();
+});
+
+/* ---------- polar array ---------- */
+function polarArrayDialog() {
+  const ents = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer));
+  if (!ents.length) { toast('Select objects to array first'); return; }
+  document.getElementById('polCount').value = '6';
+  document.getElementById('polAngle').value = '';
+  document.getElementById('polarModal').classList.add('show');
+  document.getElementById('polCount').focus();
+}
+function closePolarModal() { document.getElementById('polarModal').classList.remove('show'); }
+function polarArrayApply() {
+  const count = Math.floor(parseFloat(document.getElementById('polCount').value));
+  let step = parseFloat(document.getElementById('polAngle').value);
+  closePolarModal();
+  const ents = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer));
+  if (!ents.length) { toast('Select objects to array first'); return; }
+  if (!Number.isFinite(count) || count < 2) { toast('Number of items must be at least 2'); return; }
+  const full = !Number.isFinite(step);
+  if (full) step = 360 / count;
+  if (!Number.isFinite(step) || step === 0) { toast('Angle step must be a non-zero number'); return; }
+  if ((count - 1) * ents.length > 2000) { toast('Array too large (max 2000 copies)'); return; }
+  const ex = extentsOf(ents);
+  const at = [(ex.x0 + ex.x1) / 2, (ex.y0 + ex.y1) / 2];
+  pushUndo();
+  const copies = [];
+  for (let i = 1; i < count; i++) {
+    const offs = ents.map(e => { const k = JSON.parse(JSON.stringify(e)); k.id = newId(); return k; });
+    applyRotate(offs, at, step * i * Math.PI / 180);
+    copies.push(...offs);
+  }
+  state.doc.entities.push(...copies);
+  state.sel = new Set(copies.map(c => c.id));
+  state.dirty = true; markDirty(); renderAll();
+  setPrompt('Polar arrayed ' + ents.length + ' object(s) x' + count + ' step ' + (full ? '(auto)' : step + '°'));
+}
+document.getElementById('polCancel').onclick = closePolarModal;
+document.getElementById('polOk').onclick = polarArrayApply;
+document.getElementById('polarModal').addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') polarArrayApply();
+  if (ev.key === 'Escape') closePolarModal();
+});
 
 function mirrorSelection(mode) {
   const ents = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer));
@@ -1765,40 +2507,65 @@ function dxfLine(a, b, layer) {
           '11', b[0].toFixed(4), '21', (-b[1]).toFixed(4)].join('\n');
 }
 
-function exportDXF() {
+function buildDXFExportPlan(units) {
+  const insunits = units === 'mm' ? 4 : 1; // AutoCAD INSUNITS: millimeters=4, inches=1
+  const unitLabel = insunits === 4 ? 'mm' : 'in';
   const out = [];
   const Ls = state.doc.layers;
-  out.push(['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', '4', '0', 'ENDSEC'].join('\n'));
+  const exported = Object.create(null), omitted = Object.create(null);
+  const add = (kind, pairs) => { out.push(pairs); exported[kind] = (exported[kind] || 0) + 1; };
+  const omit = (kind) => { omitted[kind] = (omitted[kind] || 0) + 1; };
+  out.push(['0', 'SECTION', '2', 'HEADER', '9', '$INSUNITS', '70', String(insunits), '0', 'ENDSEC'].join('\n'));
   out.push(['0', 'SECTION', '2', 'TABLES', '0', 'TABLE', '2', 'LAYER', '70', String(Ls.length)].join('\n'));
-  for (const l of Ls) {
-    out.push(['0', 'LAYER', '2', l.name, '70', '0', '62', '7', '6', 'CONTINUOUS'].join('\n'));
-  }
+  for (const l of Ls) out.push(['0', 'LAYER', '2', l.name, '70', '0', '62', '7', '6', 'CONTINUOUS'].join('\n'));
   out.push(['0', 'ENDTAB', '0', 'ENDSEC'].join('\n'));
   out.push(['0', 'SECTION', '2', 'ENTITIES'].join('\n'));
   for (const e of state.doc.entities) {
     const ly = e.layer || '0';
-    if (e.type === 'line') out.push(dxfLine(e.p1, e.p2, ly));
+    if (e.type === 'dim') { omit('dimensions'); continue; }
+    if (e.type === 'line') add('LINE', dxfLine(e.p1, e.p2, ly));
     else if (e.type === 'polyline') {
-      for (let i = 0; i + 1 < e.pts.length; i++) out.push(dxfLine(e.pts[i], e.pts[i + 1], ly));
+      for (let i = 0; i + 1 < e.pts.length; i++) add('LINE', dxfLine(e.pts[i], e.pts[i + 1], ly));
     } else if (e.type === 'rect') {
       const a = e.p1, b = e.p2;
       const pts = [[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]];
-      for (let i = 0; i < 4; i++) out.push(dxfLine(pts[i], pts[(i + 1) % 4], ly));
+      for (let i = 0; i < 4; i++) add('LINE', dxfLine(pts[i], pts[(i + 1) % 4], ly));
     } else if (e.type === 'circle') {
-      out.push(['0', 'CIRCLE', '8', ly, '10', e.c[0].toFixed(4), '20', (-e.c[1]).toFixed(4),
-                '40', e.r.toFixed(4)].join('\n'));
+      add('CIRCLE', ['0', 'CIRCLE', '8', ly, '10', e.c[0].toFixed(4), '20', (-e.c[1]).toFixed(4), '40', e.r.toFixed(4)].join('\n'));
     } else if (e.type === 'arc') {
       let s = e.a1 - e.a0; while (s <= 0) s += 360;
-      out.push(['0', 'ARC', '8', ly, '10', e.c[0].toFixed(4), '20', (-e.c[1]).toFixed(4),
-                '40', e.r.toFixed(4), '50', (-(e.a0 + s)).toFixed(4), '51', (-e.a0).toFixed(4)].join('\n'));
+      add('ARC', ['0', 'ARC', '8', ly, '10', e.c[0].toFixed(4), '20', (-e.c[1]).toFixed(4), '40', e.r.toFixed(4), '50', (-(e.a0 + s)).toFixed(4), '51', (-e.a0).toFixed(4)].join('\n'));
     } else if (e.type === 'text') {
-      out.push(['0', 'TEXT', '8', ly, '10', e.p[0].toFixed(4), '20', (-e.p[1]).toFixed(4),
-                '40', (e.size || 20).toFixed(4), '1', String(e.text || '')].join('\n'));
-    }
+      add('TEXT', ['0', 'TEXT', '8', ly, '10', e.p[0].toFixed(4), '20', (-e.p[1]).toFixed(4), '40', (e.size || 20).toFixed(4), '1', String(e.text || '')].join('\n'));
+    } else omit(e.type || 'unclassified');
   }
   out.push(['0', 'ENDSEC', '0', 'EOF'].join('\n'));
-  download(slug() + '.dxf', out.join('\n'), 'application/dxf');
-  toast('Exported DXF (R12 ASCII)');
+  const counts = (map) => Object.keys(map).sort().map(k => k + ': ' + map[k]).join(', ');
+  const exportedCount = Object.values(exported).reduce((a, b) => a + b, 0);
+  const omittedCount = Object.values(omitted).reduce((a, b) => a + b, 0);
+  const summary = [
+    'Source units: unknown / unset',
+    'Output units: ' + unitLabel,
+    'Conversion: none — coordinate values exported as-is.',
+    exportedCount ? 'Included DXF entities (' + exportedCount + '): ' + counts(exported) : 'Included DXF entities: none',
+    omittedCount ? 'Omitted drawing objects (' + omittedCount + '): ' + counts(omitted) : 'Omitted drawing objects: none',
+  ].join('\n');
+  return { content: out.join('\n') + '\n', summary, exported, omitted, units: unitLabel };
+}
+
+function exportDXF() {
+  const choice = window.prompt('DXF output units? Source units are unknown / unset. Coordinates will be exported as-is, without conversion. Enter mm or in.', 'mm');
+  if (choice === null) return;
+  const selected = String(choice).trim().toLowerCase();
+  if (selected !== 'mm' && selected !== 'in' && selected !== 'inch' && selected !== 'inches') {
+    toast('DXF export cancelled - choose mm or in');
+    return;
+  }
+  const plan = buildDXFExportPlan(selected === 'mm' ? 'mm' : 'in');
+  if (!window.confirm('DXF export review\n\n' + plan.summary + '\n\nExport this file?')) return;
+  download(slug() + '.dxf', plan.content, 'application/dxf');
+  toast('Exported DXF (ASCII, ' + plan.units + ')' +
+    (Object.values(plan.omitted).reduce((a, b) => a + b, 0) ? ' — see export review for omissions' : ''));
 }
 
 function exportPNG() {
@@ -2111,6 +2878,27 @@ function wireAuth() {
 
 /* ---------- toolbar / buttons ---------- */
 function wireUI() {
+  const guideButton = document.getElementById('btnCommandGuide');
+  const guideClose = document.getElementById('closeCommandGuide');
+  const guideSearch = document.getElementById('guideSearch');
+  const guidePanel = document.getElementById('commandGuide');
+  if (guideButton) guideButton.onclick = () => setCommandGuide(!guidePanel.classList.contains('show'));
+  if (guideClose) guideClose.onclick = () => setCommandGuide(false);
+  if (guideSearch) guideSearch.addEventListener('input', () => {
+    const query = guideSearch.value.trim().toLowerCase();
+    let visibleCount = 0;
+    document.querySelectorAll('[data-guide-item]').forEach(item => {
+      const haystack = (item.textContent + ' ' + (item.dataset.search || '')).toLowerCase();
+      const visible = !query || haystack.includes(query);
+      item.hidden = !visible;
+      if (visible) visibleCount++;
+    });
+    document.querySelectorAll('[data-guide-group]').forEach(group => {
+      group.hidden = !group.querySelector('[data-guide-item]:not([hidden])');
+    });
+    const empty = document.getElementById('guideEmpty');
+    if (empty) empty.hidden = visibleCount > 0;
+  });
   document.querySelectorAll('.tool').forEach(btn => {
     btn.onclick = () => setTool(btn.dataset.tool);
   });
@@ -2153,6 +2941,8 @@ function wireUI() {
   on('btnSelLayer', () => moveSelectionToLayer());
   on('btnMirrorX', () => mirrorSelection('x'));
   on('btnMirrorY', () => mirrorSelection('y'));
+  on('btnArray', () => arraySelection());
+  on('btnArrayPolar', () => polarArrayDialog());
 
   const exp = document.getElementById('btnExport');
   const menu = document.getElementById('exportMenu');
@@ -2270,6 +3060,8 @@ window.addEventListener('load', () => { boot(); });
 // Debug/test hook: read-only access to view transform + selection internals.
 window.__autokad = { state, w2s, s2w, entitiesInWindow, parseCoordEntry };
 window.__ak = {
+  filletGeom, applyFillet, defaultFilletRadius,
+  trimGeom, applyTrim, extendGeom, applyExtend, entSegsFlat, rayEntIsects, rectCornersOf,
   parseCoordEntry,
   get state() { return state; },
   get currentUser() { return currentUser; },

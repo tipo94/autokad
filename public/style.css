@@ -224,3 +224,42 @@ body{
 .dr-main strong{font-size:13px;color:#eaf1fb;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dr-meta{font-size:11px;color:var(--dim);font-family:var(--mono)}
 .status-pill.saving{background:#1a2130;color:var(--accent2);border-color:#243247}
+
+/* ---------- on-demand command guide ---------- */
+#btnCommandGuide kbd{margin-left:3px}
+.command-guide{
+  display:none;position:fixed;z-index:90;top:60px;right:16px;width:min(430px,calc(100vw - 24px));
+  max-height:calc(100vh - 84px);flex-direction:column;overflow:hidden;
+  background:linear-gradient(160deg,#141e2a,#0e151f 72%);border:1px solid #344357;border-radius:14px;
+  box-shadow:0 20px 64px rgba(0,0,0,.62);color:var(--text)
+}
+.command-guide.show{display:flex}
+.guide-head{display:flex;align-items:center;justify-content:space-between;padding:15px 18px 11px;border-bottom:1px solid var(--line)}
+.guide-head .eyebrow{margin:0 0 4px;color:var(--accent);font:600 9px var(--mono);letter-spacing:.12em}
+.guide-head h2{margin:0;color:#eaf1fb;font-size:16px}
+.guide-close{min-width:38px;min-height:38px;font-size:15px}
+.guide-search-label{padding:11px 18px 5px;color:#aebdd0;font-size:11px;font-weight:600}
+.guide-search{margin:0 18px 10px;padding:10px 12px;background:#0a111a;border:1px solid var(--line2);border-radius:8px;color:#edf4ff;font:inherit;font-size:12px}
+.guide-search:focus{outline:2px solid #ffb45466;border-color:var(--accent)}
+.guide-content{padding:0 14px 12px;overflow:auto;overscroll-behavior:contain}
+.guide-group{padding:9px 4px 7px;border-top:1px solid #202c3b}
+.guide-group:first-child{border-top:0}
+.guide-group h3{margin:0 0 6px;color:#8294ab;font-size:10px;letter-spacing:.09em;text-transform:uppercase}
+.guide-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:38px;padding:5px 8px;border-radius:7px}
+.guide-row:hover{background:#182434}
+.guide-row span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.guide-row b{font-size:11px;color:#e1eaf6;font-weight:600}
+.guide-row small{font-size:10px;color:#8999ad;line-height:1.35}
+.guide-row kbd,.guide-note code,#btnCommandGuide kbd{font:10px var(--mono);color:#ffc77d;background:#202b39;border:1px solid #344357;border-radius:5px;padding:3px 6px;white-space:nowrap}
+.guide-note{padding:9px 8px;color:#aebdd0;font-size:11px;line-height:1.65}
+.guide-note code{font-size:10px}
+.guide-empty{margin:12px 8px;color:#aebdd0;font-size:12px}
+.guide-foot{margin:0;padding:9px 18px 12px;border-top:1px solid var(--line);color:#73849b;font-size:10px}
+@media(max-width:700px){
+  .command-guide{top:58px;left:8px;right:8px;bottom:58px;width:auto;max-height:none}
+  .guide-head{padding:12px 14px 9px}
+  .guide-search-label{padding-left:14px}
+  .guide-search{margin-left:14px;margin-right:14px;min-height:42px}
+  .guide-row{min-height:44px;padding:6px 8px}
+  .guide-row b{font-size:12px}.guide-row small{font-size:11px}
+}
