@@ -2659,10 +2659,12 @@ function parseDXF(text) {
   }
   const ents = [];
   const layers = [];
+  const unsupported = Object.create(null);
   let cur = null;
   let skip = 0;
   let lwPts = null, lwX = null, lwY = null, lwPrev = 0;
   const num = (v) => parseFloat(v);
+  const UNSUPPORTED_KINDS = ['DIMENSION', 'MTEXT', 'INSERT', 'SPLINE', 'ELLIPSE', 'POINT', 'POLYLINE', 'HATCH', 'LEADER', 'SOLID', 'ATTDEF', 'ATTRIB'];
   for (let i = 0; i < pairs.length; i++) {
     const [c, v] = pairs[i];
     if (c === 0) {
@@ -2673,7 +2675,10 @@ function parseDXF(text) {
       }
       lwPts = null; lwX = lwY = null; lwPrev = 0;
       cur = null;
-      if (v === 'DIMENSION' || v === 'MTEXT' || v === 'INSERT') skip = 1;
+      if (UNSUPPORTED_KINDS.indexOf(v) !== -1) {
+        unsupported[v] = (unsupported[v] || 0) + 1;
+        skip = 1;
+      }
       else skip = 0;
       if (v === 'LINE') cur = { type: 'line', p1: null, p2: null, layer: '0' };
       else if (v === 'CIRCLE') cur = { type: 'circle', c: null, r: null, layer: '0' };
@@ -2738,18 +2743,51 @@ function parseDXF(text) {
       e.a1 = e.a0 + s;
     }
   }
-  return { layers, entities: ents.filter(e => e.p1 || e.c || e.p) };
+  return { layers, entities: ents.filter(e => e.p1 || e.c || e.p), unsupported };
+}
+
+/* Build an import preview plan from a parse result without touching the drawing */
+function buildDXFImportPlan(parsed) {
+  const counts = Object.create(null);
+  let total = 0;
+  for (const e of parsed.entities) {
+    const kind = (e.type || 'unclassified').toUpperCase();
+    counts[kind] = (counts[kind] || 0) + 1;
+    total++;
+  }
+  const skippedMap = parsed.unsupported || {};
+  let skippedTotal = 0;
+  for (const k in skippedMap) skippedTotal += skippedMap[k];
+  const fmt = (m) => Object.keys(m).sort().map(k => k + ': ' + m[k]).join(', ');
+  const lay = ['0'];
+  for (const l of parsed.layers) if (lay.indexOf(l.name) === -1) lay.push(l.name);
+  const lines = [
+    'Layers: ' + lay.length + ' (' + lay.slice(0, 6).join(', ') + (lay.length > 6 ? ', ...' : '') + ')',
+    'Objects to add (' + total + '): ' + (total ? fmt(counts) : 'none'),
+  ];
+  if (skippedTotal) lines.push('Unsupported entities that will be skipped (' + skippedTotal + '): ' + fmt(skippedMap));
+  else lines.push('Unsupported entities that will be skipped: none');
+  if (!total && skippedTotal) lines.push('Nothing drawable in this file - importing would replace the drawing with only these layers.');
+  if (!total && !skippedTotal) lines.push('No recognizable DXF entities found.');
+  return { summary: lines.join('\n'), willAdd: counts, willAddTotal: total, skipped: skippedMap, skippedTotal, layers: lay };
 }
 
 function importDXFText(text) {
   const parsed = parseDXF(text);
-  if (!parsed.entities.length) throw new Error('no drawable entities found in DXF');
+  const plan = buildDXFImportPlan(parsed);
+  if (!plan.willAddTotal && !plan.skippedTotal) throw new Error('no recognizable DXF entities found in file');
   // merge layer list with a default layer 0
   const lay = [{ name: '0', color: '#e6edf3', visible: true, locked: false, lineweight: 1 }];
   for (const l of parsed.layers) if (!lay.some(x => x.name === l.name)) lay.push(l);
+  const msg = 'DXF import preview\n\n' + plan.summary +
+    '\n\nImporting replaces the current drawing contents.' +
+    (plan.willAddTotal ? '' : ' Nothing drawable will be added.');
+  if (!window.confirm(msg + '\n\nProceed?')) return null;
   loadDoc({ layers: lay, entities: parsed.entities }, null, 'Imported DXF');
   state.dirty = true; markDirty();
-  toast('Imported ' + parsed.entities.length + ' objects from DXF');
+  toast('Imported ' + parsed.entities.length + ' objects from DXF' +
+    (plan.skippedTotal ? ' (' + plan.skippedTotal + ' unsupported skipped)' : ''));
+  return plan;
 }
 
 /* ---------- layers modal prompt ---------- */
