@@ -2164,6 +2164,8 @@ function zoomExtents(ents) {
   state.view.x = (ex.x0 + ex.x1) / 2;
   state.view.y = (ex.y0 + ex.y1) / 2;
   draw();
+  // status readout derived from the same render transform
+  setPrompt((ents ? 'Zoomed to selection' : 'Zoomed to extents') + ' — ' + Math.round(state.view.zoom * 100) + '%');
 }
 
 /* Fit view to current selection, or to all content when nothing is selected. */
