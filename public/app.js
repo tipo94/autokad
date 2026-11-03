@@ -238,6 +238,7 @@ function snapPoint(world) {
   if (state.osnap) {
     const tol = 13 / state.view.zoom;
     let bd = tol;
+    // deterministic tie-break: strict < keeps the first candidate in entity draw order
     for (const [kind, cp] of snapCandidates()) {
       const d = dist(cp, world);
       if (d < bd) { bd = d; best = [kind, cp]; }
@@ -527,24 +528,58 @@ function drawOrthoGuide() {
   ctx.restore();
 }
 
+const SNAP_GLYPHS = { END: 'Endpoint', MID: 'Midpoint', CEN: 'Center', QUAD: 'Quadrant' };
+let snapHudPending = null, snapHudRaf = 0, snapHudKey = '';
+// candidate identity key: skip DOM writes when the candidate (kind + world point) is unchanged
+function updateSnapHud() {
+  // rAF-throttled DOM readout, display-only overlay: name of the active snap candidate.
+  const key = state.snapHit ? state.snapHit[0] + ':' + state.snapHit[1][0] + ',' + state.snapHit[1][1] : '';
+  if (key === snapHudKey && !snapHudRaf) return; // unchanged candidate — no DOM churn
+  snapHudKey = key;
+  snapHudPending = state.snapHit;
+  if (snapHudRaf) return;
+  snapHudRaf = requestAnimationFrame(() => {
+    snapHudRaf = 0;
+    const hit = snapHudPending; snapHudPending = null;
+    const row = document.getElementById('hud-snap');
+    if (!row) return;
+    if (!hit) { row.style.display = 'none'; return; }
+    document.getElementById('hs').textContent = SNAP_GLYPHS[hit[0]] || hit[0];
+    row.style.display = 'flex';
+  });
+}
+
+/* Snap indicator glyph: pure output layer. Never intercepts input (the canvas is
+   the sole event target), never enters pick/persist paths, and every exporter
+   builds from state.doc.entities only, so glyphs are display-only by construction.
+   Tie-break: snapPoint uses strict < over draw-ordered candidates, so repeated
+   calls with the same cursor resolve identically. */
 function drawSnapMarker() {
+  updateSnapHud();
   if (!state.snapHit) return;
+  if (state.rubber || panning) return; // suppress during rubber-band and pan drags
   const [kind, p] = state.snapHit;
   const s = w2s(p);
-  ctx.save();
-  ctx.strokeStyle = '#7ee2a8';
-  ctx.fillStyle = '#7ee2a8';
-  ctx.lineWidth = 1.5;
+  // fixed screen-space size, does not scale with zoom
   const r = 5;
-  if (kind === 'END') ctx.strokeRect(s[0] - r, s[1] - r, r * 2, r * 2);
-  else if (kind === 'MID') {
-    ctx.beginPath(); ctx.moveTo(s[0], s[1] - r); ctx.lineTo(s[0] + r, s[1] + r); ctx.lineTo(s[0] - r, s[1] + r); ctx.closePath(); ctx.stroke();
-  } else if (kind === 'CEN') {
-    ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, TAU); ctx.stroke();
-  } else {
-    ctx.beginPath(); ctx.moveTo(s[0] - r, s[1]); ctx.lineTo(s[0] + r, s[1]);
-    ctx.moveTo(s[0], s[1] - r); ctx.lineTo(s[0], s[1] + r); ctx.stroke();
-  }
+  ctx.save();
+  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = 'rgba(10,14,20,0.9)'; // 1px effective contrasting halo on any theme
+  const trace = () => {
+    if (kind === 'END') ctx.strokeRect(s[0] - r, s[1] - r, r * 2, r * 2);
+    else if (kind === 'MID') {
+      ctx.beginPath(); ctx.moveTo(s[0], s[1] - r); ctx.lineTo(s[0] + r, s[1] + r); ctx.lineTo(s[0] - r, s[1] + r); ctx.closePath(); ctx.stroke();
+    } else if (kind === 'CEN') {
+      ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, TAU); ctx.stroke();
+    } else {
+      ctx.beginPath(); ctx.moveTo(s[0] - r, s[1]); ctx.lineTo(s[0] + r, s[1]);
+      ctx.moveTo(s[0], s[1] - r); ctx.lineTo(s[0], s[1] + r); ctx.stroke();
+    }
+  };
+  trace(); // dark outline
+  ctx.strokeStyle = '#7ee2a8';
+  ctx.lineWidth = 1.25;
+  trace(); // accent glyph on top
   ctx.restore();
 }
 
@@ -1000,6 +1035,7 @@ function applyOffset(src, calc) {
 }
 
 /* ---------- live measure HUD ---------- */
+/* Snap name readout: see updateSnapHud near drawSnapMarker. */
 function hudAnchor() {
   // Reference point for length/angle/delta: second pending point, or drag base.
   if (state.drag && state.drag.base) return state.drag.base;
@@ -1059,6 +1095,7 @@ cv.addEventListener('mousemove', (ev) => {
     const dx = ev.clientX - panning.x, dy = ev.clientY - panning.y;
     state.view.x = panning.vx - dx / state.view.zoom;
     state.view.y = panning.vy + dy / state.view.zoom;
+    state.snapHit = null; // suppress glyph during pan drags
     draw();
     return;
   }
