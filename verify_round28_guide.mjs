@@ -5,7 +5,19 @@ const html = fs.readFileSync(new URL('./public/index.html', import.meta.url), 'u
 const js = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('./public/style.css', import.meta.url), 'utf8');
 
-const shortcuts = ['Select</b>', 'Line</b>', 'Polyline</b>', 'Rectangle</b>', 'Circle</b>', 'Arc</b>', 'Text</b>', 'Dimension</b>', 'Measure</b>', 'Move</b>', 'Erase</b>', 'Rotate</b>', 'Vertex edit</b>', 'Object snap</b>', 'Grid snap</b>', 'Ortho</b>', 'Polar snap</b>'];
+const shortcuts = ['Select</b>', 'Line</b>', 'Polyline</b>', 'Rectangle</b>', 'Circle</b>', 'Arc</b>', 'Text</b>', 'Dimension</b>', 'Measure</b>', 'Move</b>', 'Erase</b>', 'Rotate</b>', 'Vertex edit</b>', 'Offset</b>', 'Fillet</b>', 'Trim</b>', 'Extend</b>', 'Object snap</b>', 'Grid snap</b>', 'Ortho</b>', 'Polar snap</b>'];
+
+// Guide completeness: every toolbar tool button has a guide entry (authoritative content check).
+const toolIds = [...html.matchAll(/data-tool="([a-z]+)"/g)].map(m => m[1]);
+const guideAll = html.match(/<div class="guide-content" id="guideContent"[\s\S]*?<p class="guide-empty"/);
+assert.ok(guideAll, 'guide content block found');
+const guideText = guideAll[0].toLowerCase();
+for (const id of new Set(toolIds)) {
+  if (id === 'select') continue; // select is a mode, covered by the Select entry
+  assert.ok(guideText.includes(id), `guide covers toolbar tool: ${id}`);
+}
+assert.ok(guideText.includes('mirror'), 'guide covers mirror buttons');
+assert.ok(guideText.includes('array'), 'guide covers array buttons');
 for (const item of shortcuts) assert.ok(html.includes(item), `guide entry exists: ${item}`);
 for (const shortcut of ['Ctrl C', 'Ctrl V', 'Ctrl Z', 'Shift X/Y', 'Shift A', 'Shift P', 'F3', 'F7', 'F8', 'F9', 'F10']) assert.ok(html.includes(`<kbd>${shortcut}</kbd>`), `shortcut exists: ${shortcut}`);
 assert.match(html, /role="region" aria-labelledby="commandGuideTitle"/);
