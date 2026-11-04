@@ -1,8 +1,8 @@
 {
-    "name": "autokad",
+    "name": "WebCAD",
     "version": "1.0.0",
     "private": true,
-    "description": "AutoKad - a browser 2D CAD workspace",
+    "description": "WebCAD - a browser 2D CAD workspace",
     "main": "server.js",
     "scripts": {
         "start": "node server.js"

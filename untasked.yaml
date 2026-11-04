@@ -4,7 +4,7 @@ web:
   health: /health
 agent:
   description: >-
-    AutoKad is a browser 2D CAD workspace. Agents can create and extend technical
+    WebCAD is a browser 2D CAD workspace. Agents can create and extend technical
     drawings (lines, rectangles, circles, arcs, polylines, text, dimensions) on
     named layers, and get back a view URL a human can open and edit.
   tools:

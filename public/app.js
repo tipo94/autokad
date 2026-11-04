@@ -1,4 +1,4 @@
-/* AutoKad — browser 2D CAD engine */
+/* WebCAD — browser 2D CAD engine */
 (() => {
 'use strict';
 
@@ -618,6 +618,17 @@ function drawMeasure() {
 }
 
 function drawPreview() {
+  if (state.breakPreview) {
+    ctx.save(); ctx.strokeStyle = '#7fffd0'; ctx.lineWidth = 1.6;
+    ctx.setLineDash([5, 3]);
+    const bp = state.breakPreview;
+    if (Array.isArray(bp[0])) { // polyline split preview
+      ctx.beginPath(); ctx.moveTo(w2s(bp[0])); for (let i = 1; i < bp.length; i++) ctx.lineTo(w2s(bp[i])); ctx.stroke();
+    } else {
+      for (const part of bp) { pathFor(part); ctx.stroke(); }
+    }
+    ctx.restore();
+  }
   if (state.trimPick) {
     const be = state.doc.entities.find(e => e.id === state.trimPick.id);
     if (be) {
@@ -701,8 +712,11 @@ function renderLayers() {
   for (const L of state.doc.layers) {
     const row = document.createElement('div');
     row.className = 'layer' + (L.name === state.doc.currentLayer ? ' cur' : '');
-    row.innerHTML = '<span class="sw" style="background:' + L.color + '"></span>' +
-      '<span class="nm">' + esc(L.name) + '</span>';
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = L.name;
+    nm.title = 'Double-click to rename layer';
+    nm.ondblclick = (ev) => { ev.stopPropagation(); renameLayer(L); };
     const eye = document.createElement('span');
     eye.className = 'ic' + (L.visible ? '' : ' off');
     eye.textContent = L.visible ? '◉' : '◌';
@@ -723,16 +737,105 @@ function renderLayers() {
       L.color = LAYER_COLORS[(i + 1) % LAYER_COLORS.length];
       renderAll(); markDirty();
     };
-    row.append(eye, lock, col);
+    row.append(nm, eye, lock, col);
     row.onclick = () => { state.doc.currentLayer = L.name; renderLayers(); setPrompt('Current layer: ' + L.name); };
+    row.oncontextmenu = (ev) => { ev.preventDefault(); ev.stopPropagation(); openLayerMenu(ev, L); };
     box.appendChild(row);
   }
+}
+
+/* ---------- layer context menu ---------- */
+function closeLayerMenu() {
+  const m = document.getElementById('layerCtxMenu');
+  if (m) m.remove();
+  document.removeEventListener('mousedown', closeLayerMenu, true);
+  document.removeEventListener('keydown', layerMenuEscape, true);
+}
+function layerMenuEscape(ev) { if (ev.key === 'Escape') { closeLayerMenu(); ev.stopPropagation(); } }
+function layerMenuItem(menu, label, action, danger) {
+  const b = document.createElement('div');
+  b.className = 'ctx-item' + (danger ? ' danger' : '');
+  b.textContent = label;
+  b.onclick = (ev) => { ev.stopPropagation(); closeLayerMenu(); action(); };
+  menu.appendChild(b);
+}
+function openLayerMenu(ev, L) {
+  closeLayerMenu();
+  const menu = document.createElement('div');
+  menu.id = 'layerCtxMenu';
+  layerMenuItem(menu, (L.visible ? 'Hide' : 'Show') + ' layer ' + L.name, () => {
+    pushUndo(); L.visible = !L.visible; state.dirty = true; markDirty();
+    renderAll(); setPrompt(L.name + (L.visible ? ' visible' : ' hidden'));
+  });
+  layerMenuItem(menu, (L.locked ? 'Unlock' : 'Lock') + ' layer ' + L.name, () => {
+    pushUndo(); L.locked = !L.locked; state.dirty = true; markDirty();
+    renderAll(); setPrompt(L.name + (L.locked ? ' locked' : ' unlocked'));
+  });
+  layerMenuItem(menu, 'Show all layers', () => {
+    pushUndo(); for (const x of state.doc.layers) x.visible = true;
+    state.dirty = true; markDirty(); renderAll(); setPrompt('All layers visible');
+  });
+  layerMenuItem(menu, 'Isolate (hide all others)', () => {
+    pushUndo(); for (const x of state.doc.layers) x.visible = (x === L);
+    state.dirty = true; markDirty(); renderAll(); setPrompt('Isolated layer ' + L.name);
+  });
+  layerMenuItem(menu, 'Set as current', () => {
+    state.doc.currentLayer = L.name; renderAll(); setPrompt('Current layer: ' + L.name);
+  });
+  layerMenuItem(menu, 'Rename', () => renameLayer(L));
+  if (L.name !== '0') layerMenuItem(menu, 'Delete layer (move objects to 0)', () => deleteLayer(L), true);
+  document.body.appendChild(menu);
+  const pad = 4, vw = window.innerWidth, vh = window.innerHeight;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(ev.clientX, vw - r.width - pad) + 'px';
+  menu.style.top = Math.min(ev.clientY, vh - r.height - pad) + 'px';
+  setTimeout(() => document.addEventListener('mousedown', closeLayerMenu, true), 0);
+  document.addEventListener('keydown', layerMenuEscape, true);
+}
+function deleteLayer(L) {
+  const target = '0';
+  const count = state.doc.entities.filter(e => e.layer === L.name).length;
+  const nOthers = state.doc.layers.length - 1;
+  if (!nOthers) { toast('Cannot delete the only layer'); return; }
+  if (!window.confirm('Delete layer "' + L.name + '"?' +
+    (count ? ' Its ' + count + ' object(s) move to layer ' + target + '.' : ''))) return;
+  pushUndo();
+  for (const e of state.doc.entities) if (e.layer === L.name) e.layer = target;
+  state.doc.layers = state.doc.layers.filter(x => x !== L);
+  if (state.doc.currentLayer === L.name) state.doc.currentLayer = target;
+  for (const id of Array.from(state.sel)) {
+    const e = state.doc.entities.find(x => x.id === id);
+    if (!e) state.sel.delete(id);
+  }
+  state.dirty = true; markDirty();
+  renderAll(); setPrompt('Deleted layer ' + L.name + (count ? ' (' + count + ' objects moved to ' + target + ')' : ''));
+}
+
+function renameLayer(L) {
+  const oldName = L.name;
+  const name = prompt('Rename layer "' + oldName + '" to:', oldName);
+  if (name == null) return;
+  const trimmed = String(name).trim();
+  if (!trimmed || trimmed === oldName) return;
+  if (state.doc.layers.some(x => x !== L && x.name === trimmed)) {
+    toast('A layer named "' + trimmed + '" already exists');
+    return;
+  }
+  pushUndo();
+  L.name = trimmed;
+  for (const e of state.doc.entities) if (e.layer === oldName) e.layer = trimmed;
+  if (state.doc.currentLayer === oldName) state.doc.currentLayer = trimmed;
+  state.dirty = true;
+  renderAll();
+  markDirty();
+  setPrompt('Renamed layer to ' + trimmed);
 }
 
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/* ---------- properties panel (typed edits for a single selected entity) ---------- */
 function renderProps() {
   const box = document.getElementById('props');
   const sel = state.doc.entities.filter(e => state.sel.has(e.id));
@@ -742,30 +845,84 @@ function renderProps() {
   rows.push(['Type', e.type]);
   rows.push(['Layer', e.layer]);
   rows.push(['ID', e.id]);
+  // editable: [label, value, apply(ent, val)]
+  const edits = [];
   if (e.type === 'line') {
     rows.push(['Start', pt(e.p1)], ['End', pt(e.p2)], ['Length', fmt(dist(e.p1, e.p2))],
-              ['Angle', fmt(deg(Math.atan2(e.p2[1] - e.p1[1], e.p2[0] - e.p1[0]))) + '°']);
+              ['Angle', fmt(deg(Math.atan2(e.p2[1] - e.p1[1], e.p2[0] - e.p1[0]))) + '\u00b0']);
   } else if (e.type === 'rect') {
-    rows.push(['Corner', pt(e.p1)], ['Corner', pt(e.p2)],
-              ['W × H', fmt(Math.abs(e.p2[0] - e.p1[0])) + ' × ' + fmt(Math.abs(e.p2[1] - e.p1[1]))]);
+    rows.push(['Corner', pt(e.p1)], ['Corner', pt(e.p2)]);
+    edits.push(['Width', Math.abs(e.p2[0] - e.p1[0]), (en, v) => { en.p2[0] = en.p1[0] + v; }]);
+    edits.push(['Height', Math.abs(e.p2[1] - e.p1[1]), (en, v) => { en.p2[1] = en.p1[1] + v; }]);
   } else if (e.type === 'circle') {
-    rows.push(['Centre', pt(e.c)], ['Radius', fmt(e.r)], ['Diameter', fmt(e.r * 2)]);
+    rows.push(['Centre', pt(e.c)], ['Diameter', fmt(e.r * 2)]);
+    edits.push(['Radius', e.r, (en, v) => { en.r = v; }]);
   } else if (e.type === 'arc') {
-    rows.push(['Centre', pt(e.c)], ['Radius', fmt(e.r)],
-              ['Start', fmt(e.a0) + '°'], ['End', fmt(e.a1) + '°']);
+    rows.push(['Centre', pt(e.c)], ['Start', fmt(e.a0) + '\u00b0'], ['End', fmt(e.a1) + '\u00b0']);
+    edits.push(['Radius', e.r, (en, v) => { en.r = v; }]);
   } else if (e.type === 'text') {
-    rows.push(['Text', e.text], ['Position', pt(e.p)], ['Height', fmt(e.size)]);
+    rows.push(['Position', pt(e.p)]);
+    edits.push(['Text', e.text || '', (en, v) => { en.text = v; }], ['Height', e.size, (en, v) => { en.size = v; }]);
   } else if (e.type === 'polyline') {
     rows.push(['Vertices', e.pts.length], ['Start', pt(e.pts[0])],
               ['End', pt(e.pts[e.pts.length - 1])]);
   } else if (e.type === 'dim') {
     const g = dimGeom(e);
     rows.push(['Measure', g.txt], ['From', pt(e.p1)], ['To', pt(e.p2)]);
+    edits.push(['Offset', e.offset || 0, (en, v) => { en.offset = v; }]);
   }
   if (sel.length > 1) rows.unshift(['Selected', sel.length + ' objects']);
+  const readOnly = sel.length > 1;
   box.innerHTML = rows.map(([k, v]) =>
     '<div class="prop-row"><span class="pk">' + esc(k) + '</span><span class="pv" title="' + esc(v) + '">' + esc(v) + '</span></div>'
   ).join('');
+  if (!readOnly && edits.length) {
+    const form = document.createElement('div');
+    form.className = 'prop-edit';
+    form.innerHTML = '<div class="prop-edit-title">Edit</div>';
+    for (const [label, val, applyFn] of edits) {
+      const row = document.createElement('div');
+      row.className = 'prop-edit-row';
+      const lab = document.createElement('span');
+      lab.className = 'pk'; lab.textContent = label;
+      const inp = document.createElement('input');
+      inp.type = label === 'Text' ? 'text' : 'number';
+      inp.step = 'any'; inp.className = 'prop-input'; inp.value = val;
+      inp.setAttribute('aria-label', label);
+      const commit = () => {
+        const raw = label === 'Text' ? inp.value : parseFloat(inp.value);
+        if (label !== 'Text' && (!isFinite(raw))) { renderProps(); return; }
+        if (label !== 'Text' && raw <= 0 && label !== 'Offset') { toast('Value must be positive'); renderProps(); return; }
+        pushUndo();
+        applyFn(e, raw);
+        state.dirty = true; markDirty();
+        renderAll();
+        setPrompt(label + ' updated');
+      };
+      inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); commit(); } if (ev.key === 'Escape') { renderProps(); } });
+      inp.addEventListener('blur', () => { /* commit on blur only if changed */ });
+      row.append(lab, inp);
+      form.append(row);
+    }
+    const btn = document.createElement('button');
+    btn.className = 'mini prop-apply'; btn.textContent = 'Apply';
+    btn.onclick = () => {
+      const inputs = form.querySelectorAll('input');
+      inputs.forEach((inp, i) => {
+        const [label, , applyFn] = edits[i];
+        const raw = label === 'Text' ? inp.value : parseFloat(inp.value);
+        if (label !== 'Text' && !isFinite(raw)) return;
+        if (label !== 'Text' && raw <= 0 && label !== 'Offset') return;
+        pushUndo();
+        applyFn(e, raw);
+        state.dirty = true; markDirty();
+      });
+      renderAll();
+      setPrompt('Properties updated');
+    };
+    form.append(btn);
+    box.append(form);
+  }
 }
 
 function pt(p) { return '(' + fmt(p[0]) + ', ' + fmt(p[1]) + ')'; }
@@ -808,6 +965,7 @@ const PROMPTS = {
   fillet: 'Fillet: pick first line near the corner',
   trim: 'Trim: pick boundary object (or right-click to skip and use nearest intersections)',
   extend: 'Extend: pick an object to reach the next boundary',
+  break: 'Break: pick an object, then pick where to split it',
   vertex: 'Vertex edit: click a polyline, then drag a vertex (Del = delete one, midpoint circles = insert)',
 };
 
@@ -822,6 +980,8 @@ function setTool(t) {
   state.filletPreview = null;
   state.trimPick = null;
   state.trimHover = null;
+  state.breakEnt = null;
+  state.breakPreview = null;
   state.measureResult = null;
   state.vertexEnt = null;
   state.vertexIdx = null;
@@ -1167,6 +1327,22 @@ cv.addEventListener('mousemove', (ev) => {
       const res = t === 'trim' ? trimGeom(hit, w) : extendGeom(hit, w);
       if (res) state.trimHover = { mode: t, entId: hit.id, cut: res.cut || null, newEnd: res.newEnd || null };
     }
+  } else if (t === 'break') {
+    state.breakPreview = null;
+    const w = worldFromEvent(ev);
+    if (state.breakEnt) {
+      const ent = state.doc.entities.find(e => e.id === state.breakEnt.id);
+      if (ent) {
+        if (ent.type === 'circle') state.breakPreview = null; // circle: no split
+        else if (ent.type === 'polyline') {
+          const snap = snapPoint(w);
+          if (snap) state.breakPreview = snap;
+        } else {
+          const res = breakGeom(ent, w);
+          if (res) state.breakPreview = res.parts;
+        }
+      }
+    }
   } else if (t === 'measure' && state.pending.length === 1) {
     state.preview = { type: 'line', layer: state.doc.currentLayer, p1: state.pending[0], p2: p };
   } else if (['line', 'rect', 'circle', 'dim', 'arc', 'polyline'].includes(t) && state.pending.length) {
@@ -1339,6 +1515,39 @@ cv.addEventListener('mousedown', (ev) => {
       state.dirty = true; markDirty(); renderAll();
       setPrompt('Erased ' + hit.type);
     }
+    return;
+  }
+
+  if (t === 'break') {
+    if (!state.breakEnt) {
+      const hit = pickAt(raw);
+      if (!hit) return;
+      state.breakEnt = hit;
+      if (hit.type === 'circle') setPrompt('Break: a circle has no single split point — pick another object (Alt-click to clear)');
+      else if (hit.type === 'rect' || hit.type === 'text' || hit.type === 'dim') setPrompt('Break: ' + hit.type + ' not supported — pick a line, polyline or arc (Alt-click to clear)');
+      else setPrompt('Break: pick the split point on the ' + hit.type + ' (Alt-click to clear)');
+      draw(); return;
+    }
+    const ent = state.doc.entities.find(e => e.id === state.breakEnt.id);
+    state.breakEnt = null;
+    state.breakPreview = null;
+    if (!ent) { setPrompt('Break: object is gone — pick a new object'); draw(); return; }
+    if (ent.type !== 'line' && ent.type !== 'polyline' && ent.type !== 'arc') {
+      setPrompt('Break: not supported on ' + ent.type + ' — pick a line, polyline or arc');
+      draw(); return;
+    }
+    pushUndo();
+    const res = breakGeom(ent, p);
+    if (!res) {
+      state.undo.pop();
+      setPrompt('Break: split point is on an endpoint — pick a point along the object');
+      draw(); return;
+    }
+    state.doc.entities = state.doc.entities.filter(e => e.id !== ent.id);
+    for (const part of res.parts) { part.id = newId(); state.doc.entities.push(part); }
+    state.dirty = true; markDirty(); renderAll();
+    setPrompt('Broken into ' + res.parts.length + ' objects — pick the next object');
+    draw();
     return;
   }
 
@@ -1859,6 +2068,40 @@ function otherEndpoint(ent, end) {
   if (ent.type === 'line') return end === ent.p1 ? ent.p2 : ent.p1;
   return end === ent.pts[0] ? ent.pts[ent.pts.length - 1] : ent.pts[0];
 }
+/* BREAK: split an entity into two independent entities at the picked point.
+   line -> two collinear lines; polyline -> two polylines; arc -> two arcs.
+   Returns { parts: [a, b] } or null. No-op for circle/rect/text/dim (prompt). */
+function breakGeom(hit, p) {
+  if (hit.type === 'line') {
+    if (dist2(hit.p1, p) < 1e-9 || dist2(hit.p2, p) < 1e-9) return null; // no split at an endpoint
+    const a = { type: 'line', layer: hit.layer, p1: [hit.p1[0], hit.p1[1]], p2: [p[0], p[1]] };
+    const b = { type: 'line', layer: hit.layer, p1: [p[0], p[1]], p2: [hit.p2[0], hit.p2[1]] };
+    return { parts: [a, b] };
+  }
+  if (hit.type === 'polyline') {
+    let bi = -1, bd = Infinity;
+    for (let i = 0; i < hit.pts.length - 1; i++) {
+      const d = segPointDist2(hit.pts[i], hit.pts[i + 1], p);
+      if (d < bd) { bd = d; bi = i; }
+    }
+    if (bi < 0) return null;
+    const cut = [p[0], p[1]];
+    if (dist2(hit.pts[bi], cut) < 1e-9 || dist2(hit.pts[bi + 1], cut) < 1e-9) return null;
+    const a = { type: 'polyline', layer: hit.layer, pts: hit.pts.slice(0, bi + 1).map(q => [q[0], q[1]]).concat([cut]) };
+    const b = { type: 'polyline', layer: hit.layer, pts: [cut].concat(hit.pts.slice(bi + 1).map(q => [q[0], q[1]])) };
+    return { parts: [a, b] };
+  }
+  if (hit.type === 'arc') {
+    const aDeg = ((deg(Math.atan2(p[1] - hit.c[1], p[0] - hit.c[0])) % 360) + 360) % 360;
+    if (!angleInArc(rad(aDeg), hit.a0, hit.a1)) return null; // click on the arc body, not the gap
+    let mid = aDeg;
+    if (Math.abs(mid - hit.a0) < 1e-6 || Math.abs(mid - hit.a1) < 1e-6) return null;
+    const A = { type: 'arc', layer: hit.layer, c: [hit.c[0], hit.c[1]], r: hit.r, a0: hit.a0, a1: mid };
+    const B = { type: 'arc', layer: hit.layer, c: [hit.c[0], hit.c[1]], r: hit.r, a0: mid, a1: hit.a1 };
+    return { parts: [A, B] };
+  }
+  return null; // circle: no-op (prompts), same for rect/text/dim
+}
 /* TRIM: keep the clicked-side run of the picked segment up to the nearest crossing.
    Returns { cut, other } or null. */
 function trimGeom(hit, nearWorld) {
@@ -1995,8 +2238,8 @@ window.addEventListener('keydown', (ev) => {
   if (mod && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveDrawing(); return; }
   if (mod && ev.key.toLowerCase() === 'c') { ev.preventDefault(); copySelection(); return; }
   if (mod && ev.key.toLowerCase() === 'v') { ev.preventDefault(); pasteSelection(); return; }
-  if (ev.shiftKey && ev.key.toLowerCase() === 'x') { ev.preventDefault(); mirrorSelection('x'); return; }
-  if (ev.shiftKey && ev.key.toLowerCase() === 'y') { ev.preventDefault(); mirrorSelection('y'); return; }
+  if (ev.shiftKey && ev.key.toLowerCase() === 'x') { ev.preventDefault(); mirrorSelection('x', true); return; }
+  if (ev.shiftKey && ev.key.toLowerCase() === 'y') { ev.preventDefault(); mirrorSelection('y', true); return; }
   if (ev.shiftKey && ev.key.toLowerCase() === 'a') { ev.preventDefault(); arraySelection(); return; }
   if (ev.shiftKey && ev.key.toLowerCase() === 'p') { ev.preventDefault(); polarArrayDialog(); return; }
 
@@ -2037,7 +2280,7 @@ window.addEventListener('keydown', (ev) => {
 
   const k = ev.key.toLowerCase();
   const map = { v: 'select', l: 'line', p: 'polyline', r: 'rect', c: 'circle', a: 'arc',
-                t: 'text', d: 'dim', u: 'measure', m: 'move', e: 'erase', o: 'rotate', q: 'vertex' };
+                t: 'text', d: 'dim', u: 'measure', m: 'move', e: 'erase', o: 'rotate', q: 'vertex', b: 'break' };
   if (k === 'f' && !mod) { ev.preventDefault(); fitView(); return; }
   if (map[k] && !ev.altKey) { ev.preventDefault(); setTool(map[k]); }
 });
@@ -2147,6 +2390,12 @@ function polarArrayDialog() {
   document.getElementById('polCount').focus();
 }
 function closePolarModal() { document.getElementById('polarModal').classList.remove('show'); }
+
+function closePrintModal() { document.getElementById('printModal').classList.remove('show'); }
+document.getElementById('printClose').onclick = closePrintModal;
+document.getElementById('printCancel').onclick = closePrintModal;
+document.getElementById('printGo').onclick = () => { closePrintModal(); openPrintWindow(); };
+document.getElementById('printModal').onclick = (ev) => { if (ev.target.id === 'printModal') closePrintModal(); };
 function polarArrayApply() {
   const count = Math.floor(parseFloat(document.getElementById('polCount').value));
   let step = parseFloat(document.getElementById('polAngle').value);
@@ -2179,15 +2428,24 @@ document.getElementById('polarModal').addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape') closePolarModal();
 });
 
-function mirrorSelection(mode) {
+function mirrorSelection(mode, keepOriginal) {
   const ents = state.doc.entities.filter(e => state.sel.has(e.id) && !lockedLayer(e.layer));
   if (!ents.length) { toast('Select objects to mirror first'); return; }
   const ex = extentsOf(ents);
   const at = [(ex.x0 + ex.x1) / 2, (ex.y0 + ex.y1) / 2];
   pushUndo();
-  applyMirror(ents, mode, at);
+  let mirrored = ents;
+  if (keepOriginal) {
+    // Mirror copies: keep originals, add mirrored duplicates with fresh ids.
+    mirrored = ents.map(e => { const c = JSON.parse(JSON.stringify(e)); c.id = newId(); return c; });
+    state.doc.entities.push(...mirrored);
+    state.sel = new Set(mirrored.map(m => m.id));
+    applyMirror(mirrored, mode, at);
+  } else {
+    applyMirror(ents, mode, at);
+  }
   state.dirty = true; markDirty(); renderAll();
-  setPrompt('Mirrored ' + ents.length + ' object(s) ' + (mode === 'x' ? 'horizontally' : 'vertically'));
+  setPrompt((keepOriginal ? 'Mirror-copied ' : 'Mirrored ') + ents.length + ' object(s) ' + (mode === 'x' ? 'horizontally' : 'vertically') + (keepOriginal ? ' (originals kept)' : ''));
 }
 
 /* ---------- view ---------- */
@@ -2480,12 +2738,12 @@ async function shareDrawing() {
 
 /* ---------- exporters ---------- */
 function exportJSON() {
-  const body = Object.assign({ format: 'autokad', version: 1, name: docName() }, docPayload().data);
+  const body = Object.assign({ format: 'WebCAD', version: 1, name: docName() }, docPayload().data);
   download(slug() + '.json', JSON.stringify(body, null, 2), 'application/json');
   toast('Exported JSON');
 }
 
-function exportSVG() {
+function buildSVGString(bg) {
   const ex = extentsOf(state.doc.entities) || { x0: 0, y0: 0, x1: 100, y1: 100 };
   const pad = Math.max(10, Math.max(ex.x1 - ex.x0, ex.y1 - ex.y0) * 0.04);
   const w = (ex.x1 - ex.x0) + pad * 2, h = (ex.y1 - ex.y0) + pad * 2;
@@ -2495,7 +2753,7 @@ function exportSVG() {
   out.push('<?xml version="1.0" encoding="UTF-8"?>');
   out.push('<svg xmlns="http://www.w3.org/2000/svg" width="' + w.toFixed(2) + '" height="' + h.toFixed(2) +
            '" viewBox="0 0 ' + w.toFixed(2) + ' ' + h.toFixed(2) + '">');
-  out.push('<rect width="100%" height="100%" fill="#0b1017"/>');
+  out.push('<rect width="100%" height="100%" fill="' + bg + '"/>');
   for (const e of state.doc.entities) {
     const L = layerOf(e.layer);
     if (!L || !L.visible) continue;
@@ -2537,7 +2795,12 @@ function exportSVG() {
     }
   }
   out.push('</svg>');
-  download(slug() + '.svg', out.join('\n'), 'image/svg+xml');
+  return { svg: out.join('\n'), w: w, h: h, ex: ex };
+}
+
+function exportSVG() {
+  const r = buildSVGString('#0b1017');
+  download(slug() + '.svg', r.svg, 'image/svg+xml');
   toast('Exported SVG');
 }
 
@@ -2669,7 +2932,77 @@ function exportPNG() {
   }, 'image/png');
 }
 
-const EXPORTERS = { svg: exportSVG, dxf: exportDXF, png: exportPNG, json: exportJSON };
+const EXPORTERS = { svg: exportSVG, dxf: exportDXF, png: exportPNG, json: exportJSON, print: printSheetDialog };
+
+/* ---------- print / PDF sheet (browser print view) ---------- */
+const PAPER_MM = { a4: [210, 297], letter: [215.9, 279.4], a3: [297, 420] };
+
+function readPrintOptions() {
+  const val = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  return {
+    paper: val('printPaper') || 'a4',
+    landscape: val('printOrient') === 'landscape',
+    scaleMode: val('printScaleMode') === 'custom' ? 'custom' : 'fit',
+    scalePct: Math.max(1, Math.min(10000, parseFloat(val('printScalePct')) || 100)),
+    title: !document.getElementById('printTitle') || document.getElementById('printTitle').checked
+  };
+}
+
+function printSheetDialog() {
+  const m = document.getElementById('printModal');
+  if (m) m.classList.add('show');
+}
+
+function buildPrintSvgForPrint(opts) {
+  const r = buildSVGString('#ffffff');
+  const ps = PAPER_MM[opts.paper] || PAPER_MM.a4;
+  const pw = opts.landscape ? ps[1] : ps[0], ph = opts.landscape ? ps[0] : ps[1];
+  const margin = 12;
+  const titleH = opts.title ? 14 : 0;
+  const availW = pw - margin * 2, availH = ph - margin * 2 - titleH;
+  let scale = Math.min(availW / r.w, availH / r.h);
+  if (opts.scaleMode === 'custom' && opts.scalePct > 0) scale = opts.scalePct / 100;
+  const drawW = r.w * scale, drawH = r.h * scale;
+  const name = (document.getElementById('docName') && document.getElementById('docName').value) || 'Untitled Drawing';
+  const date = new Date().toISOString().slice(0, 10);
+  const scaleLabel = opts.scaleMode === 'fit' ? 'Fit to page (' + Math.round(scale * 100) + '%)' : opts.scalePct + '%';
+  return {
+    w: drawW, h: drawH, scaleLabel: scaleLabel, name: name, date: date, paper: opts.paper,
+    orientation: opts.landscape ? 'landscape' : 'portrait',
+    svg: r.svg
+  };
+}
+
+function openPrintWindow() {
+  const opts = readPrintOptions();
+  const p = buildPrintSvgForPrint(opts);
+  const mm = (v) => v.toFixed(2) + 'mm';
+  const ps = PAPER_MM[opts.paper] || PAPER_MM.a4;
+  const pw = opts.landscape ? ps[1] : ps[0], ph = opts.landscape ? ps[0] : ps[1];
+  const margin = 12;
+  const titleH = opts.title ? 14 : 0;
+  const svgInner = p.svg.replace(/^<\?xml[^>]*\?>\s*/, '');
+  const html = [
+    '<!doctype html><html><head><meta charset="utf-8"><title>' + esc(p.name) + ' — print sheet</title>',
+    '<style>',
+    '@page { size: ' + mm(pw) + ' ' + mm(ph) + '; margin: 0; }',
+    'html,body { margin:0; padding:0; background:#fff; }',
+    '.sheet { box-sizing: border-box; width:' + mm(pw) + '; height:' + mm(ph) + '; padding:' + mm(margin) + '; background:#fff; }',
+    '.draw { box-sizing: border-box; width:' + mm(pw - margin * 2) + '; height:' + mm(ph - margin * 2 - titleH) + '; display:flex; align-items:center; justify-content:center; }',
+    '.draw svg { max-width:100%; max-height:100%; }',
+    '.titleblock { height:' + mm(titleH) + '; display:flex; align-items:center; justify-content:space-between; font:9px Inter, Arial, sans-serif; color:#111; border-top:0.4mm solid #333; padding-top:1mm; }',
+    '</style></head><body>',
+    '<div class="sheet"><div class="draw">' + svgInner + '</div>',
+    opts.title ? '<div class="titleblock"><span>' + esc(p.name) + '</span><span>' + esc(p.scaleLabel) + ' · ' + esc(p.orientation) + '</span><span>' + esc(p.date) + '</span></div>' : '',
+    '</div>',
+    '<script>window.onload = function(){ setTimeout(function(){ window.focus(); window.print(); }, 250); };<' + '/script>',
+    '</body></html>'
+  ].join('\n');
+  const win = window.open('', '_blank');
+  if (!win) { toast('Pop-up blocked — allow pop-ups to print'); return; }
+  win.document.open(); win.document.write(html); win.document.close();
+  toast('Opening print sheet…');
+}
 
 function runExport(kind) {
   const fn = EXPORTERS[kind];
@@ -2680,7 +3013,7 @@ function runExport(kind) {
 function importJSONText(text) {
   const obj = JSON.parse(text);
   const data = obj && obj.data ? obj.data : obj;
-  if (!data || !Array.isArray(data.entities)) throw new Error('not an AutoKad drawing');
+  if (!data || !Array.isArray(data.entities)) throw new Error('not an WebCAD drawing');
   loadDoc(data, null, (obj && obj.name) || 'Imported Drawing');
   state.dirty = true; markDirty();
   toast('Imported ' + data.entities.length + ' objects');
@@ -3018,6 +3351,8 @@ function wireUI() {
   on('btnSelLayer', () => moveSelectionToLayer());
   on('btnMirrorX', () => mirrorSelection('x'));
   on('btnMirrorY', () => mirrorSelection('y'));
+  on('btnMirrorXCopy', () => mirrorSelection('x', true));
+  on('btnMirrorYCopy', () => mirrorSelection('y', true));
   on('btnArray', () => arraySelection());
   on('btnArrayPolar', () => polarArrayDialog());
 
@@ -3135,7 +3470,7 @@ async function boot() {
 window.addEventListener('load', () => { boot(); });
 
 // Debug/test hook: read-only access to view transform + selection internals.
-window.__autokad = { state, w2s, s2w, entitiesInWindow, parseCoordEntry };
+window.__WebCAD = { state, w2s, s2w, entitiesInWindow, parseCoordEntry };
 window.__ak = {
   filletGeom, applyFillet, defaultFilletRadius,
   trimGeom, applyTrim, extendGeom, applyExtend, entSegsFlat, rayEntIsects, rectCornersOf,

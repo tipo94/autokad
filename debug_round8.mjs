@@ -25,7 +25,7 @@ await bw.send('Page.navigate',{url:url+'/d/'+dr},SID);
 await sleep(3000);
 
 const probe = `(function(){
- const A=window.__autokad;if(!A)return {err:'no hook'};
+ const A=window.__WebCAD;if(!A)return {err:'no hook'};
  const st=A.state, cv=document.getElementById('cv'), rect=cv.getBoundingClientRect();
  const p1=A.w2s([-80,-50]),p2=A.w2s([80,50]);
  const s1=[rect.left+p1[0],rect.top+p1[1]], s2=[rect.left+p2[0],rect.top+p2[1]];
@@ -37,7 +37,7 @@ console.log('probe0:', await ev(probe));
 
 // Now do a drag and report state after each event
 const steps = `(async()=>{
- const A=window.__autokad, cv=document.getElementById('cv'), rect=cv.getBoundingClientRect();
+ const A=window.__WebCAD, cv=document.getElementById('cv'), rect=cv.getBoundingClientRect();
  const p1=A.w2s([-80,-50]),p2=A.w2s([80,50]);
  const sx=rect.left+p1[0]-40, sy=rect.top+p1[1]-40;
  const ex=rect.left+p2[0]+40, ey=rect.top+p2[1]+40;

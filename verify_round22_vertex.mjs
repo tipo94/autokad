@@ -97,7 +97,7 @@ function mup(x, y) {
   })()`);
 }
 function sOf(wp) {
-  return evalJs(`JSON.stringify(window.__autokad.w2s(${JSON.stringify(wp)}))`).then(JSON.parse);
+  return evalJs(`JSON.stringify(window.__WebCAD.w2s(${JSON.stringify(wp)}))`).then(JSON.parse);
 }
 
 async function main() {

@@ -64,7 +64,7 @@ function mouse(type, x, y, opts = '') {
     return true;
   })()`);
 }
-function sOf(wp) { return evalJs(`JSON.stringify(window.__autokad.w2s(${JSON.stringify(wp)}))`).then(JSON.parse); }
+function sOf(wp) { return evalJs(`JSON.stringify(window.__WebCAD.w2s(${JSON.stringify(wp)}))`).then(JSON.parse); }
 const hud = () => evalJs(`JSON.stringify((() => {
   const row = document.getElementById('hud-measure');
   return {

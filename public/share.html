@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AutoKad — shared drawing</title>
+<title>WebCAD — shared drawing</title>
 <meta name="robots" content="noindex">
 <style>
   :root { color-scheme: dark; }
@@ -47,7 +47,7 @@
 </head>
 <body>
 <header>
-  <a class="logo" href="/">AutoKad</a>
+  <a class="logo" href="/">WebCAD</a>
   <span class="badge">Read-only</span>
   <span class="name" id="name">Loading…</span>
   <span class="when" id="when"></span>
@@ -57,7 +57,7 @@
   <div class="msg" id="msg"><div class="big">⌛</div><h1>Loading shared drawing…</h1></div>
 </main>
 <footer>
-  <span>This is a read-only view. Open <a href="/">AutoKad</a> to draw your own.</span>
+  <span>This is a read-only view. Open <a href="/">WebCAD</a> to draw your own.</span>
   <span class="count" id="count"></span>
 </footer>
 <script>
@@ -270,7 +270,7 @@ function showError(icon, title, extra) {
   document.getElementById('name').textContent = 'Unavailable';
   const msg = document.getElementById('msg');
   msg.innerHTML = '<div class="big">' + icon + '</div><h1>' + title + '</h1>' +
-    (extra ? '<p>' + extra + ' <a href="/">Open AutoKad</a></p>' : '');
+    (extra ? '<p>' + extra + ' <a href="/">Open WebCAD</a></p>' : '');
   msg.style.display = 'flex';
 }
 

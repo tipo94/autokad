@@ -113,7 +113,7 @@ const dragDirs = `window.__r8marquee = async function(sx, sy, ex, ey){
 };`;
 
 // Exact screen coords of the line endpoints via the app's own transform hook
-const lineS = `(()=>{const A=window.__autokad;if(!A||!A.w2s) return [NaN,NaN,NaN,NaN];
+const lineS = `(()=>{const A=window.__WebCAD;if(!A||!A.w2s) return [NaN,NaN,NaN,NaN];
   const r=document.getElementById('cv').getBoundingClientRect();
   const p1=A.w2s([-80,-50]),p2=A.w2s([80,50]);
   return [r.left+p1[0],r.top+p1[1],r.left+p2[0],r.top+p2[1]];})()`;
@@ -142,7 +142,7 @@ const moveRes = await evalJS(`(async()=>{
   // select via marquee over the line, then drag from the line midpoint
   const selinfo = await window.__r8marquee(a[0]-40,a[3]-40,a[2]+40,a[1]+40);
   if(!/1 object/.test(selinfo)) return {error:'selection first: '+selinfo};
-  const A=window.__autokad;
+  const A=window.__WebCAD;
   const c=document.getElementById('cv'); const cr=c.getBoundingClientRect();
   const m=A.w2s([0,0]); const cx=cr.left+m[0], cy=cr.top+m[1];
   const ev=(t,x,y)=>c.dispatchEvent(new MouseEvent(t,{clientX:x,clientY:y,button:0,bubbles:true,cancelable:true}));
@@ -166,7 +166,7 @@ await sleep(3000);
 await evalJS(dragDirs);
 const fresh = await evalJS(`(async()=>{
   for(let i=0;i<40;i++){const c=document.getElementById('countInfo')?.textContent||'';if(!c.startsWith('0 '))break;await new Promise(r=>setTimeout(r,250));}
-  const A=window.__autokad;
+  const A=window.__WebCAD;
   const r=document.getElementById('cv').getBoundingClientRect();
   const e=(A.state.doc?.entities||[])[0];
   const q=A.w2s(e&&e.p1?e.p1:[-80,-50]), w=A.w2s(e&&e.p2?e.p2:[80,50]);

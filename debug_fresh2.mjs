@@ -37,7 +37,7 @@ await ev(`window.__r8marquee = async function(sx,sy,ex,ey){
   const c=document.getElementById('cv');
   const sel=document.querySelector('.tool[data-tool="select"]');
   sel.click(); await new Promise(r=>setTimeout(r,120));
-  const A=window.__autokad;
+  const A=window.__WebCAD;
   const ev=(t,x,y)=>c.dispatchEvent(new MouseEvent(t,{clientX:x,clientY:y,button:0,bubbles:true,cancelable:true}));
   const snap=()=>({tool:A.state.tool,drag:A.state.drag?{mode:A.state.drag.mode,ents:(A.state.drag.ents||[]).length}:null});
   ev('mousedown',sx,sy); await new Promise(r=>setTimeout(r,80));
@@ -48,7 +48,7 @@ await ev(`window.__r8marquee = async function(sx,sy,ex,ey){
   ev('mouseup',ex,ey); await new Promise(r=>setTimeout(r,200));
   return {selInfo:document.getElementById('selInfo').textContent, s1, s2, selLen:(A.state.sel||[]).length};
 };`);
-const a = await ev(`(()=>{const A=window.__autokad;const r=document.getElementById('cv').getBoundingClientRect();
+const a = await ev(`(()=>{const A=window.__WebCAD;const r=document.getElementById('cv').getBoundingClientRect();
   const p1=A.w2s([-80,-50]),p2=A.w2s([80,50]);
   return [r.left+p1[0],r.top+p1[1],r.left+p2[0],r.top+p2[1],r.left,r.top,r.width,r.height];})()`);
 console.log('GEO',JSON.stringify(a));

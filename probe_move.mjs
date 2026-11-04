@@ -31,7 +31,7 @@ const did = JSON.parse(reg).id;
 await send('Page.navigate', { url: url + '/d/' + did }, SID); await sleep(4000);
 const out = await ev('move', `(async()=>{
   for(let i=0;i<40;i++){const c=document.getElementById('countInfo')?.textContent||'';if(!c.startsWith('0 '))break;await new Promise(r=>setTimeout(r,250));}
-  const A=window.__autokad; if(!A) return 'no __autokad';
+  const A=window.__WebCAD; if(!A) return 'no __WebCAD';
   const c=document.getElementById('cv'); const r=c.getBoundingClientRect();
   const m=A.w2s([0,0]); const cx=r.left+m[0], cy=r.top+m[1];
   document.querySelector('.tool[data-tool="select"]').click(); await new Promise(res=>setTimeout(res,100));

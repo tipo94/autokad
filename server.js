@@ -142,7 +142,7 @@ async function seed(db) {
 }
 
 // ---- Auth: users, sessions, cookie login --------------------------------------
-const COOKIE_NAME = 'autokad_session';
+const COOKIE_NAME = 'WebCAD_session';
 const SESSION_MAX_AGE_S = 30 * 24 * 3600;
 
 function hashPassword(password, salt) {
@@ -575,9 +575,9 @@ app.get('/s/:token', (req, res) => {
 
 init()
   .then(() => {
-    app.listen(PORT, () => console.log('AutoKad listening on ' + PORT));
+    app.listen(PORT, () => console.log('WebCAD listening on ' + PORT));
   })
   .catch((err) => {
     console.error('startup failed', err);
-    app.listen(PORT, () => console.log('AutoKad started without db on ' + PORT));
+    app.listen(PORT, () => console.log('WebCAD started without db on ' + PORT));
   });

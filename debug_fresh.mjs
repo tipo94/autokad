@@ -21,7 +21,7 @@ await bw.send('Page.navigate',{url},SID);
 await sleep(3000);
 const pre = await ev(`(async()=>{
   for(let i=0;i<40;i++){const c=document.getElementById('countInfo')?.textContent||'';if(c && !c.startsWith('0 '))break;await new Promise(r=>setTimeout(r,250));}
-  const A=window.__autokad;
+  const A=window.__WebCAD;
   return {count:document.getElementById('countInfo')?.textContent, hasA:!!A, hasW2s:!!(A&&A.w2s), tool:A&&A.state&&A.state.tool, ents:A&&A.state&&A.state.doc&&A.state.doc.entities&&A.state.doc.entities.length, sel:A&&A.state&&A.state.sel&&A.state.sel.length};
 })()`);
 console.log('PRE', JSON.stringify(pre));
@@ -39,12 +39,12 @@ await ev(`window.__r8marquee = async function(sx, sy, ex, ey){
   ev('mouseup',ex,ey); await new Promise(r=>setTimeout(r,200));
   return document.getElementById('selInfo').textContent;
 };`);
-const mid = await ev(`(()=>{const A=window.__autokad;const r=document.getElementById('cv').getBoundingClientRect();
+const mid = await ev(`(()=>{const A=window.__WebCAD;const r=document.getElementById('cv').getBoundingClientRect();
   const p1=A.w2s([-80,-50]),p2=A.w2s([80,50]);
   return [r.left+p1[0],r.top+p1[1],r.left+p2[0],r.top+p2[1], r.width, r.height];})()`);
 console.log('LINE SCREEN', JSON.stringify(mid));
 const res = await ev(`(async()=>{
-  const A=window.__autokad;const r=document.getElementById('cv').getBoundingClientRect();
+  const A=window.__WebCAD;const r=document.getElementById('cv').getBoundingClientRect();
   const p1=A.w2s([-80,-50]),p2=A.w2s([80,50]);
   const a=[r.left+p1[0],r.top+p1[1],r.left+p2[0],r.top+p2[1]];
   const sel = await window.__r8marquee(a[2]+40,a[3]-40,a[0]-40,a[1]+40);

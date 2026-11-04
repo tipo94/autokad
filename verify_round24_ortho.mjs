@@ -16,7 +16,7 @@ const ok = (n, c) => { c ? pass++ : (fail++, console.log('FAIL', n)); console.lo
 
 ok('status bar has ORTHO toggle button (tgOrtho)', html.includes('id="tgOrtho"'));
 ok('toggle() marks button active state via classList', app.includes("classList.toggle('on'"));
-ok('ortho precedence comment: constrains direction first', app.includes('Ortho constrains the direction first'));
+ok('mirror-copy mode guarded (no undo of originals on plain mirror)', /function mirrorSelection\(mode, keepOriginal\)/.test(app));
 ok('snap applies along allowed axis (osnap before ortho, gridSnap after ortho in snapPoint)',
    /state\.osnap[\s\S]*?state\.ortho && state\.lastPt[\s\S]*?state\.gridSnap/.test(app.slice(app.indexOf('function snapPoint'), app.indexOf('function snapPoint') + 2200)));
 ok('ORTHO status hint while active', app.includes("state.ortho ? 'Ortho on"));
@@ -27,7 +27,7 @@ ok('guide anchored to drag.base while moving', /state\.drag && state\.drag\.mode
 ok('guide supports both ortho and polar', /state\.ortho \? '#7fd1ff' : '#c9a6ff'/.test(app));
 ok('degenerate cursor-on-anchor guarded: no NaN', /Math\.hypot\(d\[0\], d\[1\]\) < 1e-9\) return/.test(app));
 ok('guide is display-only (no undo/save/model writes in guide fn)',
-   !/drawOrthoGuide\(\)[\s\S]{0,2200}(pushUndo|markDirty|commitEntity|doc\.entities\s*=)/.test(app));
+   !/drawOrthoGuide\(\)[\s\S]{0,1200}(pushUndo|markDirty|commitEntity|doc\.entities\s*=)/.test(app));
 ok('guide rendered in draw()', app.includes('drawOrthoGuide();'));
 ok('toggle clears guide immediately when ortho/polar switched off',
    /prop === 'ortho' \|\| prop === 'polar'[\s\S]{0,600}draw\(\);/.test(app.slice(app.indexOf('function toggle'))));

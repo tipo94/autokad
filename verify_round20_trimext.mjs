@@ -175,7 +175,7 @@ async function main() {
   await evalJs(`window.__ak.state.sel = new Set()`);
   const vp = JSON.parse(await evalJs(`JSON.stringify((() => {
     const cv = document.getElementById('cv');
-    const w = (p) => { const s = window.__autokad.w2s(p); return [s[0], s[1]]; };
+    const w = (p) => { const s = window.__WebCAD.w2s(p); return [s[0], s[1]]; };
     const toClient = (wp) => { const [sx, sy] = w(wp); return [Math.round(sx), Math.round(sy)]; };
     return { trim: toClient([30, 0]), boundary: toClient([50, 5]), extend: toClient([70, 0]), rect: { w: cv.width, h: cv.height } };
   })())`));
@@ -215,7 +215,7 @@ async function main() {
   // extend UI flow
   await seed([['line', [0, 0], [40, 0]], ['line', [100, -10], [100, 10]]]);
   await evalJs(`document.querySelector('[data-tool="extend"]').click()`);
-  const ec = JSON.parse(await evalJs(`JSON.stringify((() => { const s = window.__autokad.w2s([40,0]); return [Math.round(s[0]), Math.round(s[1])]; })())`));
+  const ec = JSON.parse(await evalJs(`JSON.stringify((() => { const s = window.__WebCAD.w2s([40,0]); return [Math.round(s[0]), Math.round(s[1])]; })())`));
   await click(ec[0], ec[1]);
   const extAfter = JSON.parse(await evalJs(`JSON.stringify(window.__ak.state.doc.entities[0])`));
   pass('extend UI: endpoint moved to x=100', Math.abs(extAfter.p2[0] - 100) < 1, JSON.stringify(extAfter));

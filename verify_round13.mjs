@@ -127,7 +127,7 @@ async function main() {
   pass('signup+session', !!who, 'user=' + JSON.stringify(who));
 
   // Clear any leftover autosaved entities from prior sessions
-  await evalJs(`(() => { window.__autokad.state.doc.entities = []; window.__autokad.state.sel.clear(); return true; })()`);
+  await evalJs(`(() => { window.__WebCAD.state.doc.entities = []; window.__WebCAD.state.sel.clear(); return true; })()`);
   await sleep(150);
 
   // Toolbar buttons exist
@@ -155,7 +155,7 @@ async function main() {
   await fireMouse('mousemove', 700, 600, 1);
   await fireMouse('mouseup', 700, 600, 1);
   await sleep(200);
-  const sel = await evalJs(`window.__autokad.state.sel.size`);
+  const sel = await evalJs(`window.__WebCAD.state.sel.size`);
   pass('marquee selection of 2', sel === 2, 'sel=' + sel);
 
   // Shift+X mirror (flip left-right about bbox center). For an asymmetric L the
@@ -188,8 +188,8 @@ async function main() {
   // Deselect, redraw pattern, then toolbar Mirror X button
   await typeKey('Escape'); await sleep(100);
   // clear all entities
-  await evalJs(`(() => { window.__autokad.state.sel = new Set(window.__autokad.state.doc.entities.map(e => e.id)); return true; })()`);
-  await evalJs(`(() => { window.__autokad.state.doc.entities = []; window.__autokad.state.sel.clear(); return true; })()`);
+  await evalJs(`(() => { window.__WebCAD.state.sel = new Set(window.__WebCAD.state.doc.entities.map(e => e.id)); return true; })()`);
+  await evalJs(`(() => { window.__WebCAD.state.doc.entities = []; window.__WebCAD.state.sel.clear(); return true; })()`);
   await sleep(150);
   const cleared = await evalJs(`window.__ak.state.doc.entities.length`);
   pass('canvas cleared', cleared === 0, 'n=' + cleared);
@@ -199,11 +199,11 @@ async function main() {
   await clickAt(600, 400); await sleep(150); // horizontal right
   await typeKey('Escape'); await sleep(100);
 
-  await evalJs(`(() => { window.__autokad.state.sel = new Set(window.__autokad.state.doc.entities.map(e => e.id)); return true; })()`);
+  await evalJs(`(() => { window.__WebCAD.state.sel = new Set(window.__WebCAD.state.doc.entities.map(e => e.id)); return true; })()`);
   const hBefore = JSON.parse(await evalJs(`JSON.stringify(window.__ak.state.doc.entities[0])`));
   await evalJs(`document.getElementById('btnMirrorX').click()`);
   await sleep(250);
-  const afterBtn = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities)`));
+  const afterBtn = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities)`));
   // Invariant in world coords: each endpoint x reflected about the line bbox center x, y unchanged.
   const hx = [hBefore.p1[0], hBefore.p2[0]].sort((a,b)=>a-b);
   const hcx = (hx[0] + hx[1]) / 2;
@@ -215,17 +215,17 @@ async function main() {
 
   // Mirror Y via toolbar with a fresh vertical line (clean state)
   await typeKey('Escape'); await sleep(80);
-  await evalJs(`(() => { window.__autokad.state.doc.entities = []; window.__autokad.state.sel.clear(); return true; })()`);
+  await evalJs(`(() => { window.__WebCAD.state.doc.entities = []; window.__WebCAD.state.sel.clear(); return true; })()`);
   await sleep(120);
   await typeKey('l'); await sleep(120);
   await clickAt(400, 400); await sleep(100);
   await clickAt(400, 600); await sleep(150); // vertical down
   await typeKey('Escape'); await sleep(80);
-  const vBefore = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities[0])`));
-  await evalJs(`(() => { window.__autokad.state.sel = new Set(window.__autokad.state.doc.entities.map(e => e.id)); return true; })()`);
+  const vBefore = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities[0])`));
+  await evalJs(`(() => { window.__WebCAD.state.sel = new Set(window.__WebCAD.state.doc.entities.map(e => e.id)); return true; })()`);
   await evalJs(`document.getElementById('btnMirrorY').click()`);
   await sleep(250);
-  const all = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities)`));
+  const all = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities)`));
   const vy = [vBefore.p1[1], vBefore.p2[1]].sort((a,b)=>a-b);
   const vcy = (vy[0] + vy[1]) / 2;
   const vl = all.find(e => e.type === 'line');

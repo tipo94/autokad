@@ -149,11 +149,11 @@ async function main() {
 
   // Pin the view: zoom=1, world origin mapped so screen (sx,sy) == world (sx, sy - H/2)
   const pinned = await evalJs(`(() => {
-    const s = window.__autokad.state;
+    const s = window.__WebCAD.state;
     const c = document.getElementById('cv');
     const h = c.clientHeight, w = c.clientWidth;
     s.view = { x: w / 2, y: 0, zoom: 1 }; // screen_y = cvH/2 - world_y at zoom 1
-    window.__ak.renderAll ? window.__ak.renderAll() : (window.__autokad.draw ? window.__autokad.draw() : null);
+    window.__ak.renderAll ? window.__ak.renderAll() : (window.__WebCAD.draw ? window.__WebCAD.draw() : null);
     return JSON.stringify(s.view);
   })()`);
   const view = JSON.parse(pinned);
@@ -164,12 +164,12 @@ async function main() {
   const sxy = (wx, wy) => [wx, H / 2 - wy]; // screen from world (exact at zoom=1)
 
   // Fresh doc
-  await evalJs(`(() => { window.__autokad.state.doc.entities = []; window.__autokad.state.sel.clear(); return true; })()`);
+  await evalJs(`(() => { window.__WebCAD.state.doc.entities = []; window.__WebCAD.state.sel.clear(); return true; })()`);
   await sleep(150);
 
   // Toolbar + prompt check
   await typeKey('o'); await sleep(150);
-  const toolRot = await evalJs(`window.__autokad.state.tool`);
+  const toolRot = await evalJs(`window.__WebCAD.state.tool`);
   pass('hotkey o selects rotate tool', toolRot === 'rotate', 'tool=' + toolRot);
 
   const promptTxt = await evalJs(`document.getElementById('prompt') ? document.getElementById('prompt').textContent : document.body.textContent.slice(0,200)`);
@@ -181,28 +181,28 @@ async function main() {
   await clickAt(s1[0], s1[1]); await sleep(100);
   await clickAt(s2[0], s2[1]); await sleep(150);
   await typeKey('Escape'); await sleep(120);
-  const nEnts = await evalJs(`window.__autokad.state.doc.entities.length`);
+  const nEnts = await evalJs(`window.__WebCAD.state.doc.entities.length`);
   pass('one line drawn', nEnts === 1, 'n=' + nEnts);
 
-  const lineBefore = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities[0])`));
+  const lineBefore = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities[0])`));
   const lenBefore = dist(lineBefore.p1, lineBefore.p2);
   pass('line length captured', Math.abs(lenBefore - 200) < 1, 'len=' + lenBefore.toFixed(2) + ' ent=' + JSON.stringify(lineBefore));
 
   // Select the line (click its midpoint in screen coords) then press rotate hotkey
   await clickAt(sxy(200, 0)[0], sxy(200, 0)[1]); await sleep(150);
-  let sel = await evalJs(`window.__autokad.state.sel.size`);
+  let sel = await evalJs(`window.__WebCAD.state.sel.size`);
   pass('line selected by click', sel === 1, 'sel=' + sel);
 
   await typeKey('o'); await sleep(150);
   await typeKey('Enter'); await sleep(150);
-  const phase = await evalJs(`window.__autokad.state.phase`);
+  const phase = await evalJs(`window.__WebCAD.state.phase`);
   pass('Enter advances to base phase', phase === 'base', 'phase=' + phase);
 
   // Pick rotation centre = line start world (100,0); app starts a rotate drag
-  const entId = await evalJs(`window.__autokad.state.doc.entities[0].id`);
+  const entId = await evalJs(`window.__WebCAD.state.doc.entities[0].id`);
   const cScr = sxy(100, 0);
   await pressAt(cScr[0], cScr[1]); await sleep(150);
-  const dragMode = await evalJs(`window.__autokad.state.drag && window.__autokad.state.drag.mode`);
+  const dragMode = await evalJs(`window.__WebCAD.state.drag && window.__WebCAD.state.drag.mode`);
   pass('rotate drag begins at centre pick', dragMode === 'rotate', 'drag=' + JSON.stringify(dragMode));
 
   // Drag handle from east of centre to north of centre: world angle +90°.
@@ -210,7 +210,7 @@ async function main() {
   const h0 = sxy(300, 0), h1 = sxy(100, 200), hmid = sxy(100 + 200 * Math.SQRT1_2, 200 * Math.SQRT1_2);
   await dragPath([h0, hmid, h1]);
   await sleep(200);
-  const lineAfter = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities.find(e => e.id === ${JSON.stringify(entId)}))`));
+  const lineAfter = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities.find(e => e.id === ${JSON.stringify(entId)}))`));
   const pivot = lineBefore.p1;
   const angleOf = (p) => Math.atan2(p[1] - pivot[1], p[0] - pivot[0]);
   const aBefore = angleOf(lineBefore.p2);
@@ -226,7 +226,7 @@ async function main() {
 
   // Single undo restores original geometry
   await typeKey('z', 2); await sleep(250);
-  const lineUndo = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities[0])`));
+  const lineUndo = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities[0])`));
   const okUndo = dist(lineUndo.p1, lineBefore.p1) < 0.5 && dist(lineUndo.p2, lineBefore.p2) < 0.5;
   pass('single undo restores line', okUndo, JSON.stringify(lineUndo));
 
@@ -235,9 +235,9 @@ async function main() {
   await typeKey('o'); await sleep(120);
   await typeKey('Enter'); await sleep(120);
   await pressAt(cScr[0], cScr[1]); await sleep(120);
-  const drag2 = await evalJs(`window.__autokad.state.drag && window.__autokad.state.drag.mode`);
+  const drag2 = await evalJs(`window.__WebCAD.state.drag && window.__WebCAD.state.drag.mode`);
   pass('second rotate drag starts', drag2 === 'rotate', 'drag=' + JSON.stringify(drag2));
-  const entId2 = await evalJs(`window.__autokad.state.doc.entities[0].id`);
+  const entId2 = await evalJs(`window.__WebCAD.state.doc.entities[0].id`);
   // Move handle 40° below east with Shift held: snapped to nearest 15° (30° or 45°).
   const hs0 = sxy(300, 0);
   const aT = -40 * Math.PI / 180; // screen angle below east
@@ -247,7 +247,7 @@ async function main() {
   const hsEnd2 = [100 + 200 * Math.cos(aScr), H / 2 - 200 * Math.sin(aScr)];
   await dragPath([[hs0[0], hs0[1]], [hsEnd2[0], hsEnd2[1]]], 8); // mods=8 => shiftKey
   await sleep(200);
-  const lineSnap = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities.find(e => e.id === ${JSON.stringify(entId2)}))`));
+  const lineSnap = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities.find(e => e.id === ${JSON.stringify(entId2)}))`));
   const pivot2 = lineUndo.p1;
   const a0 = angleOf(lineUndo.p2);
   const a1 = angleOf(lineSnap.p2);
@@ -262,7 +262,7 @@ async function main() {
 
   // Undo the snap rotation too
   await typeKey('z', 2); await sleep(250);
-  const after = JSON.parse(await evalJs(`JSON.stringify(window.__autokad.state.doc.entities[0])`));
+  const after = JSON.parse(await evalJs(`JSON.stringify(window.__WebCAD.state.doc.entities[0])`));
   pass('undo restores after snap rotate', dist(after.p1, lineUndo.p1) < 0.5 && dist(after.p2, lineUndo.p2) < 0.5, '');
 
   await cdp.send('Page.captureScreenshot', { format: 'png' }).then(r => {

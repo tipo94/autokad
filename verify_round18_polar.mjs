@@ -65,7 +65,7 @@ async function evalJs(expr) {
 
 async function seedOneLine() {
   return evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     const doc = s.state.doc;
     doc.entities.length = 0;
     const id = 'e' + Math.random().toString(36).slice(2, 8);
@@ -113,7 +113,7 @@ async function main() {
 
   // 3. full-circle default: count 6, blank angle -> 5 copies rotated 60 deg about bbox center (50, 0)
   await seedOneLine();
-  const cntBefore = await evalJs(`window.__autokad.state.doc.entities.length`);
+  const cntBefore = await evalJs(`window.__WebCAD.state.doc.entities.length`);
   await evalJs(`(() => {
     document.getElementById('btnArrayPolar').click();
     document.getElementById('polCount').value = '6';
@@ -123,7 +123,7 @@ async function main() {
   })()`);
   await sleep(200);
   const geo = await evalJs(`(() => {
-    const lines = window.__autokad.state.doc.entities.filter(e => e.type === 'line');
+    const lines = window.__WebCAD.state.doc.entities.filter(e => e.type === 'line');
     return JSON.stringify({ n: lines.length, angles: lines.map(l => Math.round(Math.atan2(l.p1[1] - 0, l.p1[0] - 50) * 180 / Math.PI)) });
   })()`);
   let G = {}; try { G = JSON.parse(geo); } catch {}
@@ -136,13 +136,13 @@ async function main() {
   // 4. undo restores count
   const undone = await evalJs(`(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
-    return window.__autokad.state.doc.entities.length;
+    return window.__WebCAD.state.doc.entities.length;
   })()`);
   pass('undo restores count', undone === cntBefore, `undone=${undone} expected=${cntBefore}`);
 
   // 5. explicit step: count=4, step=90
   await seedOneLine();
-  const before4 = await evalJs(`window.__autokad.state.doc.entities.length`);
+  const before4 = await evalJs(`window.__WebCAD.state.doc.entities.length`);
   await evalJs(`(() => {
     document.getElementById('btnArrayPolar').click();
     document.getElementById('polCount').value = '4';
@@ -150,14 +150,14 @@ async function main() {
     document.getElementById('polOk').click();
     return true;
   })()`);
-  const after4 = await evalJs(`window.__autokad.state.doc.entities.length`);
+  const after4 = await evalJs(`window.__WebCAD.state.doc.entities.length`);
   pass('count=4 step=90 adds 3 copies', after4 === before4 + 3, `before=${before4} after=${after4}`);
   await evalJs(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));`);
 
   // 6. no selection -> toast, count unchanged
-  await evalJs(`window.__autokad.state.sel = new Set();`);
+  await evalJs(`window.__WebCAD.state.sel = new Set();`);
   const noSel = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     const before = s.state.doc.entities.length;
     document.getElementById('btnArrayPolar').click();
     const shown = document.getElementById('polarModal').classList.contains('show');
@@ -169,7 +169,7 @@ async function main() {
   // 7. invalid inputs rejected
   await seedOneLine();
   const bad = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     const results = [];
     const before = s.state.doc.entities.length;
     document.getElementById('btnArrayPolar').click();
@@ -190,7 +190,7 @@ async function main() {
 
   // 8. locked layer skipped
   const locked = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     const doc = s.state.doc;
     (doc.layers || []).forEach(l => { if (l.name !== 'Walls') l.locked = true; });
     const id = 'e' + Math.random().toString(36).slice(2, 8);
@@ -211,7 +211,7 @@ async function main() {
 
   // 9. oversize rejected
   const big = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     s.state.doc.entities.length = 0;
     const id = 'e' + Math.random().toString(36).slice(2, 8);
     s.state.doc.entities.push({ id, type: 'line', layer: 'Walls', p1: [0, 0], p2: [10, 0] });

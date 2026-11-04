@@ -1,5 +1,5 @@
 // Smoke check: zoom-to-fit (btnFit + 'f' key). Raw CDP client, no deps.
-// View state is at window.__autokad.state.view = {x, y, zoom}.
+// View state is at window.__WebCAD.state.view = {x, y, zoom}.
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -38,7 +38,7 @@ async function main() {
   const ev = async expr => (await send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true })).result.value;
 
   await sleep(1000);
-  const bootInfo = await ev(`(() => ({ ready: document.readyState, hasAK: !!(window.__ak && window.__ak.state), hasHook: !!window.__autokad, doc: (window.__autokad && window.__autokad.state && !!window.__autokad.state.doc) || false, title: document.title, body: document.body ? document.body.innerText.slice(0,200) : '' }))()`);
+  const bootInfo = await ev(`(() => ({ ready: document.readyState, hasAK: !!(window.__ak && window.__ak.state), hasHook: !!window.__WebCAD, doc: (window.__WebCAD && window.__WebCAD.state && !!window.__WebCAD.state.doc) || false, title: document.title, body: document.body ? document.body.innerText.slice(0,200) : '' }))()`);
   console.log('BOOT', JSON.stringify(bootInfo));
 
   // sign up via the auth modal (same flow as verify_round9)
@@ -46,10 +46,10 @@ async function main() {
   // open first drawing if needed
   await ev(`(async()=>{const li=document.querySelector('#drawingList li'); if(li){li.click();await new Promise(r=>setTimeout(r,800));}})()`);
 
-  const readView = () => ev(`(() => { const s = window.__autokad && window.__autokad.state; return s && s.doc ? JSON.stringify(s.view) : 'nodoc'; })()`);
+  const readView = () => ev(`(() => { const s = window.__WebCAD && window.__WebCAD.state; return s && s.doc ? JSON.stringify(s.view) : 'nodoc'; })()`);
 
   // Destructure the view: huge zoom, pan far off-content
-  await ev(`(() => { const s = window.__autokad.state; if (s.doc) { s.view.zoom = 25; s.view.x = 90000; s.view.y = -90000; draw && draw(); } return 'ok'; })()`);
+  await ev(`(() => { const s = window.__WebCAD.state; if (s.doc) { s.view.zoom = 25; s.view.x = 90000; s.view.y = -90000; draw && draw(); } return 'ok'; })()`);
   const before = await readView();
 
   // press F key

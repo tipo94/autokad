@@ -66,7 +66,7 @@ async function evalJs(expr) {
 // Seed the doc with entities and select them, bypassing pointer input.
 async function seedAndSelect() {
   return evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     const doc = s.state.doc;
     doc.entities.length = 0;
     const mk = (o) => { o.id = 'e' + Math.random().toString(36).slice(2, 8); doc.entities.push(o); return o.id; };
@@ -122,9 +122,9 @@ async function main() {
 
   // 3-5. apply array 2x3, dx=50 dy=25 on two selected lines
   const n0 = await seedAndSelect();
-  const cntBefore = await evalJs(`window.__autokad.state.doc.entities.length`);
+  const cntBefore = await evalJs(`window.__WebCAD.state.doc.entities.length`);
   const opened = await evalJs(`(() => {
-    const s = window.__autokad; s.state.sel = new Set(['e1','e2'].length ? s.state.doc.entities.slice(0,2).map(e => e.id) : []);
+    const s = window.__WebCAD; s.state.sel = new Set(['e1','e2'].length ? s.state.doc.entities.slice(0,2).map(e => e.id) : []);
     document.getElementById('btnArray').click();
     document.getElementById('arrRows').value = '2';
     document.getElementById('arrCols').value = '3';
@@ -135,7 +135,7 @@ async function main() {
   })()`);
   await sleep(200);
   const after = await evalJs(`(() => {
-    const ents = window.__autokad.state.doc.entities;
+    const ents = window.__WebCAD.state.doc.entities;
     const lines = ents.filter(e => e.type === 'line');
     // collect unique (p1) offsets
     const xs = new Set(lines.map(l => l.p1[0]).sort ? '' : '');
@@ -150,7 +150,7 @@ async function main() {
   // 5. undo restores count
   // undo via Ctrl+Z keydown (undo() is private inside the IIFE)
   const undone = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true }));
     return s.state.doc.entities.length;
   })()`);
@@ -158,7 +158,7 @@ async function main() {
 
   // 6. no selection -> toast, count unchanged
   const noSel = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     s.state.sel = new Set();
     const before = s.state.doc.entities.length;
     document.getElementById('btnArray').click();
@@ -175,7 +175,7 @@ async function main() {
 
   // 7. oversize array rejected
   const big = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     const mk = (o) => { o.id = 'e' + Math.random().toString(36).slice(2, 8); s.state.doc.entities.push(o); return o.id; };
     const id = mk({ type: 'line', layer: 'Walls', p1: [0, 0], p2: [10, 0] });
     s.state.sel = new Set([id]);
@@ -193,7 +193,7 @@ async function main() {
 
   // 8. locked-layer entity not arrayed
   const locked = await evalJs(`(() => {
-    const s = window.__autokad;
+    const s = window.__WebCAD;
     // lock everything except Walls
     const doc = s.state.doc;
     (doc.layers || []).forEach(l => { if (l.name !== 'Walls') l.locked = true; });

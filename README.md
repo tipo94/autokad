@@ -1,4 +1,4 @@
-# AutoKad
+# WebCAD
 
 A lightweight 2D CAD workspace that runs in the browser. Vanilla-JS canvas engine on the
 front end, Express + PostgreSQL on the back end, so drawings persist between visits and can

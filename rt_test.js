@@ -1,5 +1,5 @@
 const fs = require('fs');
-let src = fs.readFileSync('apps/autokad/public/app.js','utf8');
+let src = fs.readFileSync('apps/WebCAD/public/app.js','utf8');
 const grab = (name) => {
   const i = src.indexOf('function ' + name);
   if (i < 0) throw new Error('missing ' + name);

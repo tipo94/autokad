@@ -65,7 +65,7 @@ const probe = await send('Runtime.evaluate', {
     const cs = row ? getComputedStyle(row).display : 'no-row';
     const styleAttr = row ? row.getAttribute('style') : 'no-row';
     // listeners info: can't enumerate natively; check app state instead
-    const state = (window.__autokadDebug || window.state || null);
+    const state = (window.__WebCADDebug || window.state || null);
     return JSON.stringify({
       rowHTML: row ? row.outerHTML : null,
       display: cs,
